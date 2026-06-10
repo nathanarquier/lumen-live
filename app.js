@@ -1620,6 +1620,19 @@ function getStrategyIntro(strategyKey, diagnosis) {
   return intros[strategyKey] || intros.choose_direction;
 }
 
+const STRATEGY_CATEGORY_PRIORITY = {
+  rebuild_momentum:            ["focus", "reflection", "money"],
+  stabilise:                   ["money", "admin", "focus"],
+  close_target_gap:            ["money", "pricing", "relationships"],
+  accelerate:                  ["pricing", "creative", "relationships"],
+  turn_discovery_into_action:  ["local", "relationships", "focus"],
+  move_from_planning_to_doing: ["creative", "focus", "admin"],
+  improve_live_quality:        ["creative", "local", "relationships"],
+  increase_value:              ["pricing", "admin", "relationships"],
+  build_audience:              ["audience", "relationships", "creative"],
+  choose_direction:            ["focus", "reflection", "money"],
+};
+
 function chooseMissionsFromBank(diagnosis, recentMissionIds = []) {
   const strategyKey = selectStrategy(diagnosis);
 
@@ -1639,17 +1652,12 @@ function chooseMissionsFromBank(diagnosis, recentMissionIds = []) {
     candidates = candidates.filter((mission) => mission.difficulty !== "easy");
   }
 
-  if (diagnosis.targetGap === "large") {
+  const categoryPriority = STRATEGY_CATEGORY_PRIORITY[strategyKey] || [];
+  if (categoryPriority.length) {
     candidates = candidates.sort((a, b) => {
-      const priority = ["money", "pricing", "relationships", "focus"];
-      return priority.indexOf(a.category) - priority.indexOf(b.category);
-    });
-  }
-
-  if (diagnosis.incomeTrend === "down") {
-    candidates = candidates.sort((a, b) => {
-      const priority = ["money", "focus", "relationships", "admin"];
-      return priority.indexOf(a.category) - priority.indexOf(b.category);
+      const aRank = categoryPriority.indexOf(a.category);
+      const bRank = categoryPriority.indexOf(b.category);
+      return (aRank === -1 ? 999 : aRank) - (bRank === -1 ? 999 : bRank);
     });
   }
 
@@ -1810,6 +1818,8 @@ function renderMissionProgressFromRows(missions = []) {
   const completedCount = missions.filter((mission) => mission.completed).length;
   const percent = missions.length ? (completedCount / missions.length) * 100 : 0;
 
+  const allDone = missions.length > 0 && completedCount === missions.length;
+
   progressEl.innerHTML = `
     <div class="missionProgressTop">
       <div class="missionProgressLabel">This week</div>
@@ -1818,6 +1828,12 @@ function renderMissionProgressFromRows(missions = []) {
     <div class="missionProgressTrack">
       <div class="missionProgressFill" style="width:${percent}%"></div>
     </div>
+    ${allDone ? `
+    <div class="missionSnapshotNudge">
+      <p>You've completed this week's missions — create a new snapshot to see if it moved the needle.</p>
+      <button class="secondary" onclick="showStep('stepActivity')">Create new snapshot</button>
+    </div>
+    ` : ""}
   `;
 }
 
