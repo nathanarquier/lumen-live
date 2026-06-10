@@ -1,0 +1,585 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Lumen</title>
+
+    <link
+      href="https://api.fontshare.com/v2/css?f[]=satoshi@400,500,700,900&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css" />
+<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  </head>
+
+  <body>
+    <div class="app">
+      <div class="flowShell">
+        <section id="dashboardView" class="stepPanel">
+  <section class="card dashboardCard">
+    <div class="dashboardHeader">
+      <div>
+        <div class="eyebrow">Your dashboard</div>
+        <h2>Welcome back</h2>
+        <p class="stepLead">
+          See what’s actually changed since last time and decide what to focus on next.
+        </p>
+      </div>
+      <div class="dashboardActions">
+  <button id="dashboardNewSnapshotBtn" class="primary">Create new snapshot</button>
+  <button id="logoutBtn" class="secondary">Log out</button>
+</div>
+    </div>
+
+    <div id="dashboardFocus" class="dashboardFocus"></div>
+    <div class="dashboardGrid">
+      <div class="resultBlock compact">
+        <div class="resultTitle">Latest typical income</div>
+        <div id="dashboardLatestIncome" class="resultValue smallValue">-</div>
+      </div>
+
+      <div class="resultBlock compact">
+        <div class="resultTitle">Current profile</div>
+        <div id="dashboardProfile" class="resultValue smallValue">-</div>
+      </div>
+
+      <div class="resultBlock compact">
+        <div class="resultTitle">Snapshots saved</div>
+        <div id="dashboardSnapshotCount" class="resultValue smallValue">-</div>
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <div class="sectionLabel">Progress over time</div>
+    <div class="resultBlock">
+      <canvas id="dashboardIncomeChart" height="180"></canvas>
+    </div>
+
+    <div class="divider"></div>
+
+    <div class="sectionLabel">Since last time</div>
+    <div id="dashboardComparison" class="dashboardComparison"></div>
+
+    <div class="divider"></div>
+
+    <div class="sectionLabel">This week’s focus</div>
+<p class="hint">
+  Your missions update weekly based on your latest snapshot, profile and progress.
+</p>
+<div id="dashboardMissionProgress" class="missionProgress"></div>
+<div id="dashboardMissions" class="actionGrid"></div>
+<div id="recentMissions"></div>
+<div id="unfinishedMissions"></div>
+<div class="dashboardNextStep">
+  <div class="resultBlock compact">
+    <div class="resultTitle">Next check-in</div>
+    <p class="bigText">
+      Come back after one real-world move and create a new snapshot.
+    </p>
+  </div>
+</div>
+  </section>
+</section>
+        <div class="progressWrap">
+          <div class="progressMeta">
+            <span id="progressStepLabel">Step 1 of 6</span>
+            <span id="progressStepName">Start</span>
+          </div>
+          <div class="progressTrack">
+            <div id="progressFill" class="progressFill"></div>
+          </div>
+        </div>
+
+        <section id="stepIntro" class="stepPanel activeStep">
+          <div class="heroCard">
+            <div class="eyebrow">Lumen</div>
+            <h1>Where is your music actually making money?</h1>
+            <p class="heroLead">
+              A simple snapshot for artists, producers and creatives who want to
+              understand what’s paying, what’s just taking time, and what to
+              focus on next.
+            </p>
+
+            <div class="heroActions">
+              <button id="startFlowBtn" class="primary">Start</button>
+            </div>
+
+            <p class="hint">Takes about a minute. No sign-up needed to try it.</p>
+            <div class="returnLoginBox">
+  <div class="resultTitle">Already saved a snapshot?</div>
+  <p class="hint">
+    Log in to open your dashboard and compare your latest progress.
+  </p>
+  <div class="buttons">
+    <button id="introLoginBtn" class="secondary">Log in</button>
+  </div>
+  <p id="introAuthStatus" class="hint"></p>
+</div>
+          </div>
+
+                    <section class="card">
+            <h2>Try an example</h2>
+            <div class="buttons">
+              <button id="scenarioFreelance" class="primary">
+                Freelance-led producer
+              </button>
+              <button id="scenarioLive" class="primary">
+                Live-focused artist
+              </button>
+              <button id="scenarioStreaming" class="primary">
+                Streaming-first artist
+              </button>
+            </div>
+            <p class="hint">
+              These are just starting points — you can change any number later.
+            </p>
+          </section>
+        </section>
+
+        <section id="stepActivity" class="stepPanel">
+          <section class="card">
+            <div class="stepIntroBlock">
+              <div class="eyebrow">Step 2</div>
+              <h2>What does your month look like?</h2>
+              <p class="stepLead">
+                Start with the activity side. We’ll turn the money side into
+                actual numbers next.
+              </p>
+            </div>
+
+            <div class="formGrid">
+              <label>
+                <span>Streams per month</span>
+                <input
+                  type="number"
+                  id="streams"
+                  value="10000"
+                  min="0"
+                  step="100"
+                />
+              </label>
+
+              <label>
+                <span>Live shows per month</span>
+                <input type="number" id="shows" value="2" min="0" step="1" />
+              </label>
+            </div>
+
+            <div class="stepNav">
+              <button id="backToIntroBtn" class="secondary">Back</button>
+              <button id="toMoneyBtn" class="primary">Continue</button>
+            </div>
+          </section>
+        </section>
+
+        <section id="stepMoney" class="stepPanel">
+          <section class="card">
+            <div class="stepIntroBlock">
+              <div class="eyebrow">Step 3</div>
+              <h2>How does that translate financially?</h2>
+              <p class="stepLead">
+                Add the money side and Lumen will turn it into a real snapshot.
+              </p>
+            </div>
+
+            <div class="formGrid">
+              <label>
+                <span>Net profit per show (£)</span>
+                <input
+                  type="number"
+                  id="netPerShow"
+                  value="150"
+                  min="0"
+                  step="10"
+                />
+              </label>
+
+              <label>
+                <span>Freelance day rate (£)</span>
+                <input
+                  type="number"
+                  id="dayRate"
+                  value="250"
+                  min="0"
+                  step="10"
+                />
+              </label>
+
+              <label>
+                <span>Freelance days per month</span>
+                <input
+                  type="number"
+                  id="freelanceDays"
+                  value="8"
+                  min="0"
+                  step="1"
+                />
+              </label>
+
+              <label>
+                <span
+                  >Target monthly income (£)
+                  <em class="muted">(optional)</em></span
+                >
+                <input
+                  type="number"
+                  id="target"
+                  value="1500"
+                  min="0"
+                  step="50"
+                />
+              </label>
+            </div>
+
+            <div class="stepNav">
+              <button id="backToActivityBtn" class="secondary">Back</button>
+              <button id="toResultsBtn" class="primary">See my breakdown</button>
+            </div>
+          </section>
+        </section>
+
+        <section id="stepResults" class="stepPanel">
+          <section class="card">
+            <div class="resultsHeader">
+              <div>
+                <div class="eyebrow">Step 4</div>
+                <h2>Your snapshot</h2>
+              </div>
+              <div id="profileBadge" class="profileBadge">Balanced mix</div>
+            </div>
+
+            <div class="sectionLabel">Income</div>
+            <div class="resultBlock">
+              <div class="resultTitle">Estimated monthly income</div>
+              <div class="resultValue" id="incomeRange">-</div>
+              <div class="resultSub" id="incomeTypical">-</div>
+            </div>
+
+            <div class="divider"></div>
+
+            <div class="sectionLabel">Revenue mix</div>
+            <div class="resultBlock">
+              <div class="resultTitle">Where your money is coming from</div>
+
+              <div class="mixGrid">
+                <div class="chartWrap">
+                  <canvas id="mixChart" width="280" height="280"></canvas>
+                </div>
+
+                <div class="mixLegend">
+                  <div class="legendRow" id="legendRowStreaming">
+                    <span class="dot streaming"></span>
+                    <span class="legendLabel">Streaming</span>
+                    <span class="legendValue" id="legendStreaming">-</span>
+                  </div>
+                  <div class="legendRow" id="legendRowLive">
+                    <span class="dot live"></span>
+                    <span class="legendLabel">Live</span>
+                    <span class="legendValue" id="legendLive">-</span>
+                  </div>
+                  <div class="legendRow" id="legendRowFreelance">
+                    <span class="dot freelance"></span>
+                    <span class="legendLabel">Freelance</span>
+                    <span class="legendValue" id="legendFreelance">-</span>
+                  </div>
+
+                  <div class="allocationText" id="allocation">-</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="divider"></div>
+
+            <div class="sectionLabel">What this means</div>
+            <div class="resultBlock">
+              <p id="insight" class="bigText">-</p>
+            </div>
+
+            <div class="stepNav">
+              <button id="backToMoneyBtn" class="secondary">Back</button>
+              <button id="toFocusBtn" class="primary">
+                What should I focus on?
+              </button>
+            </div>
+          </section>
+        </section>
+
+        <section id="stepFocus" class="stepPanel">
+  <section class="card">
+    <div class="stepIntroBlock">
+      <div class="eyebrow">Step 5</div>
+      <h2>What to do next</h2>
+      <p class="stepLead">
+        Enter a London postcode. Lumen will show nearby places and show how they could support your next move.
+      </p>
+    </div>
+
+    <div class="sectionLabel">Places that match your current stage</div>
+
+<div id="searchPrompts" class="searchPromptList" style="margin-bottom:14px;"></div>
+
+<p class="hint">
+  London-first for now. Enter a London postcode and Lumen will suggest nearby places that match your current profile.
+</p>
+    <div class="resultBlock">
+      <div class="resultTitle">Find useful places nearby</div>
+
+      <input
+        type="text"
+        id="postcodeInput"
+        placeholder="Enter your postcode (e.g. E2 8AA)"
+      />
+
+      <button id="findPlacesBtn" class="primary small" style="margin-top:10px;">
+        Show places
+      </button>
+
+      <div id="map" style="height: 280px; margin-top:16px; border-radius:12px;"></div>
+
+      <div id="placesList" class="searchPromptList" style="margin-top:12px;"></div>
+    </div>
+
+    <div class="divider"></div>
+
+    <div class="sectionLabel">What to do with those places</div>
+<div id="thisWeekActions" class="actionGrid">
+  <div class="searchPrompt">
+    <span class="promptLabel">No postcode yet</span>
+    <div class="promptText">
+      Enter a London postcode above. Lumen will then suggest nearby places and practical next moves.
+    </div>
+  </div>
+</div>
+
+    <div class="divider"></div>
+
+<div id="recommendationBlock" class="resultBlock" style="display:none;">
+  <div class="resultTitle">Local strategy</div>
+  <div id="recommendation" class="recommendationHtml"></div>
+</div>
+
+<div id="goalBlock" class="resultBlock" style="display:none;">
+  <div class="resultTitle">Compared to your goal</div>
+  <p id="goalText" class="bigText">-</p>
+</div>
+
+    <div class="stepNav">
+      <button id="backToResultsBtn" class="secondary">Back</button>
+      <button id="toPlanBtn" class="primary">
+        Save and track progress
+      </button>
+    </div>
+  </section>
+</section>
+
+        <section id="stepPlan" class="stepPanel">
+          <section class="card">
+            <div class="stepIntroBlock">
+              <div class="eyebrow">Step 6</div>
+              <h2>Save your snapshot</h2>
+<p class="stepLead">
+  Save this so Lumen can track what changes next time.
+</p>
+            </div>
+
+            <div class="returnPrompt">
+  <div class="resultTitle">Saved snapshots let you</div>
+  <p class="bigText">
+    Compare your income over time, see if your profile changes, and get updated weekly missions.
+  </p>
+</div>
+
+
+           <div class="buttons">
+  <button id="savePlanBtn" class="primary">
+    Save snapshot and open dashboard
+  </button>
+  <button
+    id="downloadPdfBtn"
+    class="secondary"
+    style="display:none;"
+  >
+    Download PDF
+  </button>
+</div>
+
+<p class="hint">Takes 10 seconds. You can come back to this anytime.</p>
+<p id="saveStatus" class="hint"></p>
+
+            <div class="stepNav">
+              <button id="backToFocusBtn" class="secondary">Back</button>
+              <button id="startOverBtn" class="secondary">Start over</button>
+            </div>
+
+            <p class="disclaimer">
+              Estimates are directional and based on simplified assumptions.
+              Lumen is not a forecasting tool.
+            </p>
+          </section>
+        </section>
+      </div>
+    </div>
+
+    <section id="pdfView" class="pdfView">
+      <div class="pdfPage pdfCover">
+        <h1 class="pdfTitle">Lumen</h1>
+        <p class="pdfSubtitle">Your income snapshot</p>
+        <p class="pdfDate" id="pdfDate">-</p>
+      </div>
+
+      <div class="pdfPage">
+        <div class="pdfSectionGroup">
+          <h2 class="pdfHeading">Your numbers</h2>
+          <div class="pdfCard">
+            <div class="pdfInputGrid">
+              <div class="pdfRow">
+                <span class="pdfLabel">Streams per month</span>
+                <span class="pdfValue" id="pdfStreams">-</span>
+              </div>
+              <div class="pdfRow">
+                <span class="pdfLabel">Live shows per month</span>
+                <span class="pdfValue" id="pdfShows">-</span>
+              </div>
+              <div class="pdfRow">
+                <span class="pdfLabel">Net profit per show</span>
+                <span class="pdfValue" id="pdfNetPerShow">-</span>
+              </div>
+              <div class="pdfRow">
+                <span class="pdfLabel">Freelance day rate</span>
+                <span class="pdfValue" id="pdfDayRate">-</span>
+              </div>
+              <div class="pdfRow">
+                <span class="pdfLabel">Freelance days per month</span>
+                <span class="pdfValue" id="pdfFreelanceDays">-</span>
+              </div>
+              <div class="pdfRow" id="pdfTargetRow" style="display:none;">
+                <span class="pdfLabel">Target monthly income</span>
+                <span class="pdfValue" id="pdfTarget">-</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="pdfSectionGroup">
+          <h2 class="pdfHeading">Income summary</h2>
+          <div class="pdfCard">
+            <div class="pdfResultBlock">
+              <div class="pdfResultLabel">Estimated monthly income</div>
+              <div class="pdfResultValue" id="pdfIncomeRange">-</div>
+              <div class="pdfResultSub" id="pdfIncomeTypical">-</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="pdfPage">
+        <h2 class="pdfHeading">Revenue mix</h2>
+        <div class="pdfCard">
+          <div class="pdfChartSection">
+            <div class="pdfChartContainer">
+              <img id="pdfChartImg" alt="Revenue mix chart" />
+            </div>
+            <div class="pdfAllocationPanel">
+              <div class="pdfAllocationTitle">Breakdown</div>
+              <div class="pdfAllocation" id="pdfAllocation">-</div>
+            </div>
+          </div>
+        </div>
+
+        <h2 class="pdfHeading" style="margin-top: 28px;">What this means</h2>
+        <div class="pdfCard pdfCardCompact">
+          <p class="pdfInsight" id="pdfInsight">-</p>
+        </div>
+      </div>
+
+      <div class="pdfPage">
+        <h2 class="pdfHeading">What to focus on</h2>
+        <div class="pdfCard pdfCardRecommendations" id="pdfRecommendations"></div>
+      </div>
+
+      <div class="pdfPage">
+        <h2 class="pdfHeading">Keep tracking</h2>
+        <div class="pdfChecklistSection">
+          <p class="pdfPlanIntro">
+            Here’s a simple action plan to help you make progress over the next
+            month. Pick what feels achievable and start there.
+          </p>
+          <ul class="pdfChecklist" id="pdfChecklist"></ul>
+        </div>
+
+        <div class="pdfFooter">
+          <p class="pdfDisclaimer">
+            Estimates are directional and based on simplified assumptions. Lumen
+            is not a forecasting tool.
+          </p>
+          <p class="pdfLink">
+            Created with Lumen - <span id="pdfUrl">lumenapp.com</span>
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <div id="pdfPreviewModal" class="pdfPreviewModal" style="display:none;">
+      <div class="pdfPreviewOverlay"></div>
+      <div class="pdfPreviewContainer">
+        <div class="pdfPreviewHeader">
+          <h2>Preview PDF</h2>
+          <button id="closePreviewBtn" class="secondary small">Close</button>
+        </div>
+        <div class="pdfPreviewContent" id="pdfPreviewContent"></div>
+        <div class="pdfPreviewFooter">
+          <button id="confirmDownloadBtn" class="primary">Download PDF</button>
+        </div>
+      </div>
+    </div>
+<div id="authModal" class="authModal" style="display:none;">
+  <div class="authOverlay"></div>
+
+  <div class="authBox">
+    <div class="authHeader">
+      <div>
+        <div class="eyebrow">Lumen account</div>
+        <h2 id="authTitle">Log in</h2>
+      </div>
+      <button id="closeAuthModalBtn" class="secondary small" type="button">
+        Close
+      </button>
+    </div>
+
+    <p id="authIntro" class="stepLead">
+      Open your dashboard, save snapshots, and come back to see what changed.
+    </p>
+
+    <div class="authForm">
+      <label>
+        <span>Email</span>
+        <input id="authEmail" type="email" placeholder="you@example.com" />
+      </label>
+
+      <label>
+        <span>Password</span>
+        <input id="authPassword" type="password" placeholder="Your password" />
+      </label>
+    </div>
+
+    <div class="buttons">
+      <button id="authSubmitBtn" class="primary">Continue</button>
+    </div>
+
+    <p id="authStatus" class="hint"></p>
+  </div>
+</div>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js"></script>
+
+<script src="data.js"></script>
+<script src="places.js"></script>
+<script src="supabase.js"></script>
+<script src="app.js"></script>
+  </body>
+</html>
