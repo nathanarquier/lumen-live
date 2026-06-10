@@ -28,7 +28,6 @@ A web tool for early-career musicians (18-25, UK) that helps them understand the
 ## Supabase
 Backend records: snapshots, dashboards, missions, mission completion, user IDs.
 Key retention metric: second snapshot created within 14 days of first.
-
 ## Design system
 Midnight Studio: deep navy #0D0E1A, indigo #6E5BF0, lilac #B8A9FF, gold #FFD166.
 Fonts: Satoshi (body), Clash Display (headings).
