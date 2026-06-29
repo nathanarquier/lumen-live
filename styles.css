@@ -2572,3 +2572,14 @@ button:active,
     gap: 10px;
   }
 }
+/* Textarea chat input */
+textarea.chatInputField {
+  resize: none;
+  overflow-y: hidden;
+  line-height: 1.5;
+  min-height: 40px;
+  max-height: 160px;
+  overflow-y: auto;
+  padding-top: 10px;
+  padding-bottom: 10px;
+}

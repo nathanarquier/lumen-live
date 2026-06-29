@@ -125,14 +125,14 @@
 
           <div class="chatInputBar" id="chatInputBar">
             <div class="chatInputWrap">
-              <input
-                type="text"
+              <textarea
                 class="chatInputField"
                 id="chatInput"
                 placeholder="Message Lumen…"
                 aria-label="Type a message"
                 autocomplete="off"
-              />
+                rows="1"
+              ></textarea>
               <div class="chatInputActions">
                 <button
                   class="chatInputAction"
@@ -334,9 +334,20 @@
       status.textContent = authMode === 'signup' ? 'Creating account…' : 'Logging in…';
 
       if (authMode === 'signup') {
-        const { error } = await supabaseClient.auth.signUp({ email, password });
-        if (error) {
-          status.textContent = 'Something went wrong. If you already have an account, try logging in.';
+        const { error: signupError } = await supabaseClient.auth.signUp({ email, password });
+        if (signupError) {
+          // Email already registered — auto-fall-through to login
+          if (signupError.message && signupError.message.toLowerCase().includes('already')) {
+            status.textContent = 'Looks like you already have an account — logging you in.';
+            const { error: loginError } = await supabaseClient.auth.signInWithPassword({ email, password });
+            if (loginError) { status.textContent = loginError.message; return; }
+            setTimeout(async () => {
+              closeAuthModal();
+              await handleSuccessfulLogin();
+            }, 500);
+            return;
+          }
+          status.textContent = 'Something went wrong — please try again.';
           return;
         }
         status.textContent = 'Account created! Your conversations will now be saved.';
@@ -349,6 +360,7 @@
               await saveMessageToSupabase(msg.role, msg.content);
             }
           }
+          unlockDashboard();
           updateAccountBtn();
         }, 900);
         return;
@@ -359,10 +371,35 @@
       status.textContent = 'Logged in.';
       setTimeout(async () => {
         closeAuthModal();
-        currentUser = await getCurrentUser();
-        await loadUserProfile();
-        updateAccountBtn();
+        await handleSuccessfulLogin();
       }, 500);
+    }
+
+    async function handleSuccessfulLogin() {
+      currentUser = await getCurrentUser();
+      await loadUserProfile();
+      // Only load saved conversation if the chat is currently empty
+      if (messages.length === 0) {
+        await loadLatestConversation();
+      }
+      unlockDashboard();
+      updateAccountBtn();
+    }
+
+    function unlockDashboard() {
+      dashViewBtn.classList.remove('locked');
+      dashViewBtn.removeAttribute('aria-disabled');
+      dashViewBtn.title = '';
+      dashViewBtn.innerHTML = 'Dashboard';
+      dashViewBtn.onclick = () => {
+        chatViewBtn.classList.remove('active');
+        chatViewBtn.setAttribute('aria-selected', 'false');
+        dashViewBtn.classList.add('active');
+        dashViewBtn.setAttribute('aria-selected', 'true');
+        chatView.style.display      = 'none';
+        dashboardView.style.display = 'flex';
+        dashboardView.removeAttribute('aria-hidden');
+      };
     }
 
     document.getElementById('closeAuthBtn').addEventListener('click', closeAuthModal);
@@ -600,7 +637,7 @@
           .eq('user_id', currentUser.id)
           .order('created_at', { ascending: false })
           .limit(1)
-          .single();
+          .maybeSingle();
 
         if (!latest) return;
 
@@ -683,7 +720,7 @@
           .from('user_profile')
           .select('goal, career_stage, primary_obstacle, current_decision, profile_code')
           .eq('user_id', currentUser.id)
-          .single();
+          .maybeSingle();
         if (data) userProfile = data;
       } catch { /* table may not exist yet — silent */ }
     }
@@ -742,6 +779,7 @@
       isSending = true;
       disableInput();
       chatInput.value = '';
+      chatInput.style.height = 'auto';
 
       const isFirst = messages.length === 0;
 
@@ -831,6 +869,13 @@
         e.preventDefault();
         sendMessage(chatInput.value);
       }
+      // Shift+Enter: browser inserts newline naturally — no prevention needed
+    });
+
+    // Auto-resize textarea as content grows
+    chatInput.addEventListener('input', () => {
+      chatInput.style.height = 'auto';
+      chatInput.style.height = Math.min(chatInput.scrollHeight, 160) + 'px';
     });
 
     // ================================================================
@@ -841,6 +886,7 @@
 
       if (currentUser) {
         await Promise.all([loadUserProfile(), loadLatestConversation()]);
+        unlockDashboard();
         updateAccountBtn();
       }
 
