@@ -19,7 +19,7 @@
 
           <div class="sidebarTop">
             <div class="sidebarLogo">Lumen</div>
-            <button class="sidebarNewBtn" type="button">
+            <button class="sidebarNewBtn" id="newConvBtn" type="button">
               <svg width="15" height="15" viewBox="0 0 15 15" fill="none" aria-hidden="true">
                 <path d="M7.5 1.5v12M1.5 7.5h12" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
               </svg>
@@ -34,7 +34,7 @@
           </div>
 
           <div class="sidebarFooter">
-            <button class="sidebarAccountBtn" type="button">
+            <button class="sidebarAccountBtn" id="accountBtn" type="button">
               <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
                 <circle cx="8" cy="5.5" r="2.5" stroke="currentColor" stroke-width="1.7"/>
                 <path d="M2.5 13.5c0-2.485 2.462-4.5 5.5-4.5s5.5 2.015 5.5 4.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
@@ -106,7 +106,7 @@
               <p class="chatWelcomeSub">
                 Tell me what's going on with your music. I'm here to help you think it through.
               </p>
-              <div class="chatPromptsGrid">
+              <div class="chatPromptsGrid" id="chatPromptsGrid">
                 <button class="chatPromptBtn" type="button">
                   Help me figure out what to focus on
                 </button>
@@ -123,7 +123,7 @@
             </div>
           </div>
 
-          <div class="chatInputBar">
+          <div class="chatInputBar" id="chatInputBar">
             <div class="chatInputWrap">
               <input
                 type="text"
@@ -136,6 +136,7 @@
               <div class="chatInputActions">
                 <button
                   class="chatInputAction"
+                  id="imageBtn"
                   type="button"
                   aria-label="Attach image"
                 >
@@ -171,52 +172,682 @@
       </main>
     </div>
 
+    <!-- AUTH MODAL -->
+    <div id="authModal" class="authModal" style="display:none;">
+      <div class="authOverlay" id="authOverlay"></div>
+      <div class="authBox">
+        <div class="authHeader">
+          <div>
+            <div class="eyebrow">Lumen account</div>
+            <h2 id="authTitle">Log in</h2>
+          </div>
+          <button id="closeAuthBtn" class="secondary small" type="button">Close</button>
+        </div>
+        <p id="authIntro" class="stepLead">
+          Log in to save your conversations and pick up where you left off.
+        </p>
+        <div class="authForm">
+          <label>
+            <span>Email</span>
+            <input id="authEmail" type="email" placeholder="you@example.com" autocomplete="email" />
+          </label>
+          <label>
+            <span>Password</span>
+            <input id="authPassword" type="password" placeholder="Your password" autocomplete="current-password" />
+          </label>
+        </div>
+        <div class="buttons" style="margin-top:16px;">
+          <button id="authSubmitBtn" class="primary" type="button">Log in</button>
+        </div>
+        <p id="authStatusMsg" class="hint"></p>
+        <p id="authSwitchMsg" class="hint" style="margin-top:4px;"></p>
+      </div>
+    </div>
+
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js"></script>
     <script src="data.js"></script>
     <script src="supabase.js"></script>
     <script>
-      // Shell interactions only — no AI or Supabase wiring yet
+    // ================================================================
+    //  LUMEN CHAT LAYER
+    //  Depends on: supabaseClient (supabase.js)
+    // ================================================================
 
-      const hamburgerBtn = document.getElementById('hamburgerBtn');
-      const chatSidebar  = document.getElementById('chatSidebar');
-      const overlay      = document.getElementById('sidebarOverlay');
-      const chatViewBtn  = document.getElementById('chatViewBtn');
-      const dashViewBtn  = document.getElementById('dashViewBtn');
-      const chatView     = document.getElementById('chatView');
-      const dashboardView = document.getElementById('dashboardView');
+    // --- Config ---
+    const API_CHAT    = '/api/chat';
+    const API_EXTRACT = '/api/extract-profile';
 
-      function openSidebar() {
-        chatSidebar.classList.add('open');
-        overlay.classList.add('visible');
-        hamburgerBtn.setAttribute('aria-label', 'Close sidebar');
+    // --- Session state ---
+    let messages         = [];   // {role, content}[] passed to Anthropic
+    let conversationId   = null; // UUID for the active conversation
+    let currentUser      = null;
+    let userProfile      = null; // {goal, career_stage, primary_obstacle, current_decision, profile_code}
+    let userMessageCount = 0;    // unauthenticated counter for soft gate
+    let authGateDismissed = false;
+    let isSending        = false;
+    let chatMessagesEl   = null; // reference to .chatMessages wrapper
+
+    // --- DOM ---
+    const chatInput     = document.getElementById('chatInput');
+    const sendBtn       = document.getElementById('sendBtn');
+    const chatContent   = document.getElementById('chatContent');
+    const chatInputBar  = document.getElementById('chatInputBar');
+    const chatView      = document.getElementById('chatView');
+    const dashboardView = document.getElementById('dashboardView');
+    const chatViewBtn   = document.getElementById('chatViewBtn');
+    const dashViewBtn   = document.getElementById('dashViewBtn');
+    const hamburgerBtn  = document.getElementById('hamburgerBtn');
+    const chatSidebar   = document.getElementById('chatSidebar');
+    const sidebarOverlay = document.getElementById('sidebarOverlay');
+    const accountBtn    = document.getElementById('accountBtn');
+    const newConvBtn    = document.getElementById('newConvBtn');
+
+    // ================================================================
+    //  SIDEBAR & VIEW TOGGLE
+    // ================================================================
+    function openSidebar() {
+      chatSidebar.classList.add('open');
+      sidebarOverlay.classList.add('visible');
+      hamburgerBtn.setAttribute('aria-label', 'Close sidebar');
+    }
+    function closeSidebar() {
+      chatSidebar.classList.remove('open');
+      sidebarOverlay.classList.remove('visible');
+      hamburgerBtn.setAttribute('aria-label', 'Open sidebar');
+    }
+    hamburgerBtn.addEventListener('click', () =>
+      chatSidebar.classList.contains('open') ? closeSidebar() : openSidebar()
+    );
+    sidebarOverlay.addEventListener('click', closeSidebar);
+
+    chatViewBtn.addEventListener('click', () => {
+      chatViewBtn.classList.add('active');
+      chatViewBtn.setAttribute('aria-selected', 'true');
+      dashViewBtn.classList.remove('active');
+      dashViewBtn.setAttribute('aria-selected', 'false');
+      chatView.style.display    = 'flex';
+      dashboardView.style.display = 'none';
+      dashboardView.setAttribute('aria-hidden', 'true');
+    });
+    dashViewBtn.addEventListener('click', e => e.preventDefault());
+
+    // ================================================================
+    //  AUTH HELPERS
+    // ================================================================
+    async function getCurrentUser() {
+      try {
+        const { data, error } = await supabaseClient.auth.getUser();
+        if (error) return null;
+        return data.user || null;
+      } catch { return null; }
+    }
+
+    // Mirrors logUserEvent from app.js — fires only when authenticated
+    async function logUserEvent(eventType, metadata = {}) {
+      if (!currentUser) return;
+      try {
+        await supabaseClient.from('user_events').insert([{
+          user_id:    currentUser.id,
+          event_type: eventType,
+          metadata
+        }]);
+      } catch (err) {
+        console.warn('logUserEvent error:', err.message);
+      }
+    }
+
+    // ================================================================
+    //  AUTH MODAL
+    // ================================================================
+    let authMode = 'login';
+
+    function openAuthModal(mode = 'login') {
+      authMode = mode;
+      const isSignup = mode === 'signup';
+      document.getElementById('authTitle').textContent     = isSignup ? 'Create account' : 'Log in';
+      document.getElementById('authIntro').textContent     = isSignup
+        ? 'Save this conversation and keep going — takes 30 seconds.'
+        : 'Log in to access your saved conversations.';
+      document.getElementById('authSubmitBtn').textContent = isSignup ? 'Create account' : 'Log in';
+      document.getElementById('authStatusMsg').textContent = '';
+      document.getElementById('authSwitchMsg').innerHTML   = isSignup
+        ? 'Already have an account? <a href="#" onclick="openAuthModal(\'login\');return false;">Log in instead</a>'
+        : 'No account yet? <a href="#" onclick="openAuthModal(\'signup\');return false;">Sign up</a>';
+      document.getElementById('authModal').style.display   = 'flex';
+      setTimeout(() => document.getElementById('authEmail')?.focus(), 80);
+    }
+
+    function closeAuthModal() {
+      document.getElementById('authModal').style.display = 'none';
+    }
+
+    async function submitAuth() {
+      const email    = document.getElementById('authEmail').value.trim();
+      const password = document.getElementById('authPassword').value;
+      const status   = document.getElementById('authStatusMsg');
+
+      if (!email || !password) {
+        status.textContent = 'Enter your email and password first.';
+        return;
       }
 
-      function closeSidebar() {
-        chatSidebar.classList.remove('open');
-        overlay.classList.remove('visible');
-        hamburgerBtn.setAttribute('aria-label', 'Open sidebar');
+      status.textContent = authMode === 'signup' ? 'Creating account…' : 'Logging in…';
+
+      if (authMode === 'signup') {
+        const { error } = await supabaseClient.auth.signUp({ email, password });
+        if (error) {
+          status.textContent = 'Something went wrong. If you already have an account, try logging in.';
+          return;
+        }
+        status.textContent = 'Account created! Your conversations will now be saved.';
+        setTimeout(async () => {
+          closeAuthModal();
+          currentUser = await getCurrentUser();
+          // Backfill any in-memory messages to Supabase
+          if (currentUser && messages.length && conversationId) {
+            for (const msg of messages) {
+              await saveMessageToSupabase(msg.role, msg.content);
+            }
+          }
+          updateAccountBtn();
+        }, 900);
+        return;
       }
 
-      hamburgerBtn.addEventListener('click', () => {
-        chatSidebar.classList.contains('open') ? closeSidebar() : openSidebar();
+      const { error } = await supabaseClient.auth.signInWithPassword({ email, password });
+      if (error) { status.textContent = error.message; return; }
+      status.textContent = 'Logged in.';
+      setTimeout(async () => {
+        closeAuthModal();
+        currentUser = await getCurrentUser();
+        await loadUserProfile();
+        updateAccountBtn();
+      }, 500);
+    }
+
+    document.getElementById('closeAuthBtn').addEventListener('click', closeAuthModal);
+    document.getElementById('authOverlay').addEventListener('click', closeAuthModal);
+    document.getElementById('authSubmitBtn').addEventListener('click', submitAuth);
+    document.getElementById('authPassword').addEventListener('keydown', e => {
+      if (e.key === 'Enter') submitAuth();
+    });
+
+    function updateAccountBtn() {
+      if (!accountBtn) return;
+      const iconSvg = `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+        <circle cx="8" cy="5.5" r="2.5" stroke="currentColor" stroke-width="1.7"/>
+        <path d="M2.5 13.5c0-2.485 2.462-4.5 5.5-4.5s5.5 2.015 5.5 4.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+      </svg>`;
+      if (currentUser) {
+        accountBtn.innerHTML = iconSvg + ' Log out';
+        accountBtn.onclick = async () => {
+          await supabaseClient.auth.signOut();
+          currentUser  = null;
+          userProfile  = null;
+          updateAccountBtn();
+        };
+      } else {
+        accountBtn.innerHTML = iconSvg + ' Account';
+        accountBtn.onclick = () => openAuthModal('login');
+      }
+    }
+
+    // ================================================================
+    //  NEW CONVERSATION
+    // ================================================================
+    function startNewConversation() {
+      messages          = [];
+      conversationId    = null;
+      userMessageCount  = 0;
+      authGateDismissed = false;
+      chatMessagesEl    = null;
+      isSending         = false;
+
+      // Remove auth gate if showing
+      document.getElementById('authGate')?.remove();
+
+      // Restore welcome screen
+      chatContent.className = 'chatContent';
+      chatContent.innerHTML = `
+        <div class="chatWelcome">
+          <div class="chatWelcomeEyebrow">Lumen</div>
+          <h1 class="chatWelcomeTitle">What's on your mind?</h1>
+          <p class="chatWelcomeSub">Tell me what's going on with your music. I'm here to help you think it through.</p>
+          <div class="chatPromptsGrid">
+            <button class="chatPromptBtn" type="button">Help me figure out what to focus on</button>
+            <button class="chatPromptBtn" type="button">I want to earn more from my music</button>
+            <button class="chatPromptBtn" type="button">I have a decision to make</button>
+            <button class="chatPromptBtn" type="button">Just let me type</button>
+          </div>
+        </div>`;
+
+      enableInput();
+      chatInput.value = '';
+      wirePromptButtons();
+      chatInput.focus();
+    }
+
+    newConvBtn.addEventListener('click', () => {
+      startNewConversation();
+      closeSidebar();
+    });
+
+    // ================================================================
+    //  CHAT UI HELPERS
+    // ================================================================
+    function ensureMessagesWrapper() {
+      // Transition from welcome state to message stream
+      const welcome = chatContent.querySelector('.chatWelcome');
+      if (welcome) {
+        welcome.remove();
+        chatContent.classList.add('chatActive');
+      }
+      if (!chatMessagesEl || !chatContent.contains(chatMessagesEl)) {
+        chatMessagesEl = document.createElement('div');
+        chatMessagesEl.className = 'chatMessages';
+        chatContent.appendChild(chatMessagesEl);
+      }
+    }
+
+    function addMessageToUI(role, content) {
+      ensureMessagesWrapper();
+      const msgEl   = document.createElement('div');
+      msgEl.className = `chatMsg chatMsg--${role}`;
+      const bubble  = document.createElement('div');
+      bubble.className = 'chatMsgBubble';
+      bubble.innerHTML = role === 'assistant' ? renderMarkdown(content) : escapeHtml(content);
+      msgEl.appendChild(bubble);
+      chatMessagesEl.appendChild(msgEl);
+      requestAnimationFrame(scrollToBottom);
+    }
+
+    function showTypingIndicator() {
+      ensureMessagesWrapper();
+      if (document.getElementById('typingIndicator')) return;
+      const el = document.createElement('div');
+      el.id = 'typingIndicator';
+      el.className = 'chatMsg chatMsg--assistant';
+      el.innerHTML  = '<div class="chatMsgBubble chatTyping"><span class="typingDot"></span><span class="typingDot"></span><span class="typingDot"></span></div>';
+      chatMessagesEl.appendChild(el);
+      scrollToBottom();
+    }
+
+    function hideTypingIndicator() {
+      document.getElementById('typingIndicator')?.remove();
+    }
+
+    function scrollToBottom() {
+      chatContent.scrollTop = chatContent.scrollHeight;
+    }
+
+    function disableInput() {
+      chatInput.disabled = true;
+      sendBtn.disabled   = true;
+    }
+
+    function enableInput() {
+      chatInput.disabled = false;
+      sendBtn.disabled   = false;
+    }
+
+    function escapeHtml(text) {
+      return text
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+    }
+
+    // ================================================================
+    //  MARKDOWN RENDERER (lightweight, for AI replies)
+    // ================================================================
+    function renderMarkdown(text) {
+      if (!text) return '';
+
+      // Escape HTML, then apply inline formatting
+      let html = text
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+        .replace(/\*(.*?)\*/g, '<em>$1</em>')
+        .replace(/`(.*?)`/g, '<code>$1</code>');
+
+      // Split on double newlines → block-level elements
+      const blocks = html.split(/\n\n+/);
+
+      return blocks.map(block => {
+        block = block.trim();
+        if (!block) return '';
+
+        const lines = block.split('\n');
+        const hasBullets = lines.some(l => /^[-*•] /.test(l));
+
+        if (hasBullets) {
+          const items = lines
+            .filter(l => l.trim())
+            .map(l => {
+              const t = l.replace(/^[-*•] /, '').trim();
+              return t ? `<li>${t}</li>` : '';
+            })
+            .join('');
+          return `<ul>${items}</ul>`;
+        }
+
+        return `<p>${lines.join('<br>')}</p>`;
+      }).filter(Boolean).join('');
+    }
+
+    // ================================================================
+    //  AUTH GATE (soft, non-blocking)
+    // ================================================================
+    function showAuthGate() {
+      if (document.getElementById('authGate') || authGateDismissed) return;
+
+      const banner = document.createElement('div');
+      banner.id = 'authGate';
+      banner.className = 'authGateBanner';
+      banner.innerHTML = `
+        <span class="authGateText">Save this conversation and keep going — it takes 30 seconds.</span>
+        <div class="authGateActions">
+          <button class="primary small" type="button" id="authGateSignupBtn">Sign up</button>
+          <button class="chatInputAction" type="button" id="authGateDismissBtn" aria-label="Dismiss">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+              <path d="M2 2l10 10M12 2L2 12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            </svg>
+          </button>
+        </div>`;
+
+      chatInputBar.parentNode.insertBefore(banner, chatInputBar);
+
+      document.getElementById('authGateSignupBtn').addEventListener('click', () => {
+        openAuthModal('signup');
+      });
+      document.getElementById('authGateDismissBtn').addEventListener('click', dismissAuthGate);
+
+      logUserEvent('auth_gate_shown', {});
+    }
+
+    function dismissAuthGate() {
+      document.getElementById('authGate')?.remove();
+      authGateDismissed = true;
+      logUserEvent('auth_gate_dismissed', {});
+    }
+
+    // ================================================================
+    //  SUPABASE PERSISTENCE
+    // ================================================================
+    async function saveMessageToSupabase(role, content) {
+      if (!currentUser || !conversationId) return;
+      try {
+        await supabaseClient.from('conversations').insert([{
+          user_id:         currentUser.id,
+          role,
+          content,
+          conversation_id: conversationId,
+          is_summary:      false
+        }]);
+      } catch (err) {
+        console.warn('saveMessage error:', err.message);
+      }
+    }
+
+    async function loadLatestConversation() {
+      if (!currentUser) return;
+      try {
+        const { data: latest } = await supabaseClient
+          .from('conversations')
+          .select('conversation_id')
+          .eq('user_id', currentUser.id)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .single();
+
+        if (!latest) return;
+
+        conversationId = latest.conversation_id;
+
+        const { data: rows } = await supabaseClient
+          .from('conversations')
+          .select('id, role, content, is_summary')
+          .eq('conversation_id', conversationId)
+          .order('created_at', { ascending: true });
+
+        if (!rows || !rows.length) return;
+
+        // Rebuild in-memory messages array (includes summaries for context)
+        messages = rows.map(r => ({ role: r.role, content: r.content }));
+
+        // Render non-summary messages in the UI
+        rows.forEach(r => {
+          if (!r.is_summary) addMessageToUI(r.role, r.content);
+        });
+
+      } catch (err) {
+        console.warn('loadLatestConversation error:', err.message);
+      }
+    }
+
+    async function maybeCompressHistory() {
+      if (!currentUser || !conversationId) return;
+      try {
+        const { data: rows } = await supabaseClient
+          .from('conversations')
+          .select('id, role, content')
+          .eq('conversation_id', conversationId)
+          .eq('is_summary', false)
+          .order('created_at', { ascending: true });
+
+        if (!rows || rows.length <= 20) return;
+
+        // Summarise the full history
+        const res = await fetch(API_CHAT, {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({
+            messages: [
+              ...rows.map(r => ({ role: r.role, content: r.content })),
+              { role: 'user', content: 'Summarise this conversation history concisely, preserving the key facts about the user, their goals, obstacles, and any decisions discussed.' }
+            ],
+            userProfile: null
+          })
+        });
+
+        if (!res.ok) return;
+        const { reply: summary } = await res.json();
+
+        // Delete old rows, insert summary
+        await supabaseClient.from('conversations').delete().in('id', rows.map(r => r.id));
+        await supabaseClient.from('conversations').insert([{
+          user_id:         currentUser.id,
+          role:            'assistant',
+          content:         summary,
+          conversation_id: conversationId,
+          is_summary:      true
+        }]);
+
+        // Rebuild in-memory messages from the summary
+        messages = [{ role: 'assistant', content: summary }];
+
+      } catch (err) {
+        console.warn('maybeCompressHistory error:', err.message);
+      }
+    }
+
+    // ================================================================
+    //  USER PROFILE
+    // ================================================================
+    async function loadUserProfile() {
+      if (!currentUser) return;
+      try {
+        const { data } = await supabaseClient
+          .from('user_profile')
+          .select('goal, career_stage, primary_obstacle, current_decision, profile_code')
+          .eq('user_id', currentUser.id)
+          .single();
+        if (data) userProfile = data;
+      } catch { /* table may not exist yet — silent */ }
+    }
+
+    // Called as a background operation after each AI response
+    async function extractAndUpsertProfile() {
+      if (!currentUser || messages.length < 4) return;
+      try {
+        const res = await fetch(API_EXTRACT, {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({ messages: messages.slice(-12) })
+        });
+
+        if (!res.ok) return;
+        const { profile } = await res.json();
+        if (!profile) return;
+
+        // Keep only non-null, non-empty values
+        const updates = Object.fromEntries(
+          Object.entries(profile).filter(([, v]) => v != null && v !== '')
+        );
+        if (!Object.keys(updates).length) return;
+
+        const prev = userProfile || {};
+
+        // Fire onboarding events
+        if (updates.goal && !prev.goal) {
+          logUserEvent('onboarding_goal_captured', { goal: updates.goal });
+        }
+        const fields   = ['goal', 'career_stage', 'primary_obstacle', 'current_decision'];
+        const hadAll   = fields.every(f => prev[f]);
+        const hasAllNow = fields.every(f => updates[f] || prev[f]);
+        if (hasAllNow && !hadAll) {
+          logUserEvent('onboarding_completed', {});
+        }
+
+        userProfile = { ...prev, ...updates };
+
+        await supabaseClient
+          .from('user_profile')
+          .upsert([{ user_id: currentUser.id, ...updates }], { onConflict: 'user_id' });
+
+      } catch (err) {
+        console.warn('extractAndUpsertProfile error:', err.message);
+      }
+    }
+
+    // ================================================================
+    //  CORE: SEND MESSAGE
+    // ================================================================
+    async function sendMessage(content) {
+      content = content.trim();
+      if (!content || isSending) return;
+
+      isSending = true;
+      disableInput();
+      chatInput.value = '';
+
+      const isFirst = messages.length === 0;
+
+      // Generate conversation ID on first message
+      if (isFirst) {
+        if (!conversationId) conversationId = crypto.randomUUID();
+        logUserEvent('conversation_started', { conversation_id: conversationId });
+      }
+
+      // Render user message
+      addMessageToUI('user', content);
+
+      // Event tracking
+      logUserEvent('chat_message_sent', {
+        conversation_id: conversationId,
+        message_length:  content.length
       });
 
-      overlay.addEventListener('click', closeSidebar);
+      // Add to context array
+      messages.push({ role: 'user', content });
 
-      chatViewBtn.addEventListener('click', () => {
-        chatViewBtn.classList.add('active');
-        chatViewBtn.setAttribute('aria-selected', 'true');
-        dashViewBtn.classList.remove('active');
-        dashViewBtn.setAttribute('aria-selected', 'false');
-        chatView.style.display    = 'flex';
-        dashboardView.style.display = 'none';
-        dashboardView.setAttribute('aria-hidden', 'true');
+      // Persist if authenticated; count + gate if not
+      if (currentUser) {
+        await saveMessageToSupabase('user', content);
+      } else {
+        userMessageCount++;
+        if (userMessageCount === 3 && !authGateDismissed) {
+          showAuthGate();
+        }
+      }
+
+      // Show typing indicator
+      showTypingIndicator();
+
+      try {
+        const res = await fetch(API_CHAT, {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({ messages, userProfile })
+        });
+
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const { reply } = await res.json();
+
+        hideTypingIndicator();
+        addMessageToUI('assistant', reply);
+        messages.push({ role: 'assistant', content: reply });
+
+        if (currentUser) {
+          await saveMessageToSupabase('assistant', reply);
+          // Non-blocking background ops
+          maybeCompressHistory().catch(console.warn);
+          extractAndUpsertProfile().catch(console.warn);
+        }
+
+      } catch (err) {
+        console.error('sendMessage error:', err);
+        hideTypingIndicator();
+        addMessageToUI('assistant', 'Something went wrong — check your connection and try again.');
+      }
+
+      isSending = false;
+      enableInput();
+      chatInput.focus();
+    }
+
+    // ================================================================
+    //  PROMPT BUTTONS
+    // ================================================================
+    function wirePromptButtons() {
+      chatContent.querySelectorAll('.chatPromptBtn').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const text = btn.textContent.trim();
+          await logUserEvent('suggested_prompt_selected', { prompt_text: text });
+          await sendMessage(text);
+        });
       });
+    }
 
-      // Dashboard tab locked until authentication is wired
-      dashViewBtn.addEventListener('click', (e) => {
+    // ================================================================
+    //  INPUT EVENTS
+    // ================================================================
+    sendBtn.addEventListener('click', () => sendMessage(chatInput.value));
+
+    chatInput.addEventListener('keydown', e => {
+      if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
-      });
+        sendMessage(chatInput.value);
+      }
+    });
+
+    // ================================================================
+    //  BOOT
+    // ================================================================
+    async function initChat() {
+      currentUser = await getCurrentUser();
+
+      if (currentUser) {
+        await Promise.all([loadUserProfile(), loadLatestConversation()]);
+        updateAccountBtn();
+      }
+
+      wirePromptButtons();
+    }
+
+    initChat();
     </script>
   </body>
 </html>
