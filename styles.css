@@ -2583,3 +2583,207 @@ textarea.chatInputField {
   padding-top: 10px;
   padding-bottom: 10px;
 }
+
+/* ================================================================
+   IMAGE UPLOAD
+   ================================================================ */
+.chatImagePreview {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--card);
+  border-top: 1px solid var(--border);
+}
+
+.chatImageThumb {
+  width: 56px;
+  height: 56px;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.chatImageRemoveBtn {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: rgba(18,18,18,0.12);
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+.chatImageRemoveBtn:hover {
+  background: rgba(18,18,18,0.20);
+}
+
+.chatImageInBubble {
+  display: block;
+  max-width: 220px;
+  max-height: 180px;
+  width: auto;
+  height: auto;
+  border-radius: 10px;
+  margin-bottom: 6px;
+  border: 1px solid rgba(255,255,255,0.15);
+}
+
+/* ================================================================
+   DASHBOARD
+   ================================================================ */
+.dashboardView {
+  flex-direction: column;
+  overflow-y: auto;
+}
+
+.dashboardContent {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  max-width: 640px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 28px 20px 40px;
+}
+
+.dashSectionLabel {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 10px;
+}
+
+.dashGoalBlock {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 20px;
+  backdrop-filter: blur(12px);
+}
+
+.dashGoalText {
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--text-primary);
+  line-height: 1.5;
+}
+
+.dashMissionsBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.dashMissionMeta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 4px;
+}
+
+.dashMissionCount {
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.dashProgressTrack {
+  flex: 1;
+  height: 4px;
+  background: var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.dashProgressFill {
+  height: 100%;
+  background: var(--primary);
+  border-radius: 4px;
+  transition: width 0.3s ease;
+}
+
+.dashMissionCard {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 16px;
+  cursor: pointer;
+  transition: opacity 0.2s, border-color 0.2s;
+  backdrop-filter: blur(12px);
+}
+
+.dashMissionCard:hover {
+  border-color: var(--primary);
+}
+
+.dashMissionCard.completed {
+  opacity: 0.55;
+}
+
+.dashCheckbox {
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  border: 1.8px solid var(--border);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 1px;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.dashCheckbox.checked {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
+}
+
+.dashMissionBody {
+  flex: 1;
+  min-width: 0;
+}
+
+.dashMissionTitle {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  line-height: 1.4;
+  margin-bottom: 4px;
+}
+
+.dashMissionWhy {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.dashLoading {
+  font-size: 13px;
+  color: var(--text-muted);
+  padding: 12px 0;
+}
+
+.dashEmptyState {
+  font-size: 13px;
+  color: var(--text-muted);
+  padding: 8px 0;
+}
+
+@media (max-width: 720px) {
+  .dashboardContent {
+    padding: 20px 16px 32px;
+  }
+}

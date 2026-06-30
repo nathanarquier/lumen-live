@@ -204,6 +204,8 @@
       </div>
     </div>
 
+    <input type="file" id="imageFileInput" accept="image/*" style="display:none" aria-hidden="true" />
+
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js"></script>
     <script src="data.js"></script>
     <script src="supabase.js"></script>
@@ -214,18 +216,21 @@
     // ================================================================
 
     // --- Config ---
-    const API_CHAT    = '/api/chat';
-    const API_EXTRACT = '/api/extract-profile';
+    const API_CHAT     = '/api/chat';
+    const API_EXTRACT  = '/api/extract-profile';
+    const API_MISSIONS = '/api/generate-missions';
 
     // --- Session state ---
-    let messages         = [];   // {role, content}[] passed to Anthropic
-    let conversationId   = null; // UUID for the active conversation
-    let currentUser      = null;
-    let userProfile      = null; // {goal, career_stage, primary_obstacle, current_decision, profile_code}
-    let userMessageCount = 0;    // unauthenticated counter for soft gate
+    let messages          = [];   // {role, content|content[]}[] passed to Anthropic
+    let conversationId    = null; // UUID for the active conversation
+    let currentUser       = null;
+    let userProfile       = null; // {goal, career_stage, primary_obstacle, current_decision, profile_code}
+    let userMessageCount  = 0;    // unauthenticated counter for soft gate
     let authGateDismissed = false;
-    let isSending        = false;
-    let chatMessagesEl   = null; // reference to .chatMessages wrapper
+    let isSending         = false;
+    let chatMessagesEl    = null; // reference to .chatMessages wrapper
+    let pendingImage      = null; // {dataUrl, mediaType, base64}
+    let dashboardRendering = false;
 
     // --- DOM ---
     const chatInput     = document.getElementById('chatInput');
@@ -239,8 +244,10 @@
     const hamburgerBtn  = document.getElementById('hamburgerBtn');
     const chatSidebar   = document.getElementById('chatSidebar');
     const sidebarOverlay = document.getElementById('sidebarOverlay');
-    const accountBtn    = document.getElementById('accountBtn');
-    const newConvBtn    = document.getElementById('newConvBtn');
+    const accountBtn      = document.getElementById('accountBtn');
+    const newConvBtn      = document.getElementById('newConvBtn');
+    const imageBtn        = document.getElementById('imageBtn');
+    const imageFileInput  = document.getElementById('imageFileInput');
 
     // ================================================================
     //  SIDEBAR & VIEW TOGGLE
@@ -399,6 +406,7 @@
         chatView.style.display      = 'none';
         dashboardView.style.display = 'flex';
         dashboardView.removeAttribute('aria-hidden');
+        renderDashboard();
       };
     }
 
@@ -486,13 +494,22 @@
       }
     }
 
-    function addMessageToUI(role, content) {
+    function addMessageToUI(role, content, imageDataUrl = null) {
       ensureMessagesWrapper();
-      const msgEl   = document.createElement('div');
+      const msgEl = document.createElement('div');
       msgEl.className = `chatMsg chatMsg--${role}`;
-      const bubble  = document.createElement('div');
+      const bubble = document.createElement('div');
       bubble.className = 'chatMsgBubble';
-      bubble.innerHTML = role === 'assistant' ? renderMarkdown(content) : escapeHtml(content);
+
+      let inner = '';
+      if (imageDataUrl) {
+        inner += `<img src="${imageDataUrl}" alt="Attached image" class="chatImageInBubble" />`;
+      }
+      if (content) {
+        inner += role === 'assistant' ? renderMarkdown(content) : `<span>${escapeHtml(content)}</span>`;
+      }
+      bubble.innerHTML = inner;
+
       msgEl.appendChild(bubble);
       chatMessagesEl.appendChild(msgEl);
       requestAnimationFrame(scrollToBottom);
@@ -772,46 +789,55 @@
     // ================================================================
     //  CORE: SEND MESSAGE
     // ================================================================
-    async function sendMessage(content) {
-      content = content.trim();
-      if (!content || isSending) return;
+    async function sendMessage(rawContent) {
+      const content  = rawContent.trim();
+      const hasImage = !!pendingImage;
+      if ((!content && !hasImage) || isSending) return;
 
       isSending = true;
       disableInput();
       chatInput.value = '';
       chatInput.style.height = 'auto';
 
-      const isFirst = messages.length === 0;
+      // Capture and clear pending image before async work
+      const image = pendingImage;
+      if (image) clearImagePreview();
 
-      // Generate conversation ID on first message
+      const isFirst = messages.length === 0;
       if (isFirst) {
         if (!conversationId) conversationId = crypto.randomUUID();
         logUserEvent('conversation_started', { conversation_id: conversationId });
       }
 
-      // Render user message
-      addMessageToUI('user', content);
+      // Render user message (with thumbnail if image)
+      addMessageToUI('user', content, image?.dataUrl || null);
 
-      // Event tracking
-      logUserEvent('chat_message_sent', {
-        conversation_id: conversationId,
-        message_length:  content.length
-      });
+      logUserEvent('chat_message_sent', { conversation_id: conversationId, message_length: content.length });
+      if (image) logUserEvent('image_uploaded', { conversation_id: conversationId });
 
-      // Add to context array
-      messages.push({ role: 'user', content });
+      // Build multi-modal content for Anthropic if image present
+      let messageContent;
+      if (image) {
+        const blocks = [
+          { type: 'image', source: { type: 'base64', media_type: image.mediaType, data: image.base64 } }
+        ];
+        if (content) blocks.push({ type: 'text', text: content });
+        else blocks.push({ type: 'text', text: ' ' }); // Anthropic requires at least one text block
+        messageContent = blocks;
+      } else {
+        messageContent = content;
+      }
+      messages.push({ role: 'user', content: messageContent });
 
-      // Persist if authenticated; count + gate if not
+      // Persist text to Supabase (base64 not stored)
+      const supabaseText = image ? (content ? `[Image] ${content}` : '[Image]') : content;
       if (currentUser) {
-        await saveMessageToSupabase('user', content);
+        await saveMessageToSupabase('user', supabaseText);
       } else {
         userMessageCount++;
-        if (userMessageCount === 3 && !authGateDismissed) {
-          showAuthGate();
-        }
+        if (userMessageCount === 3 && !authGateDismissed) showAuthGate();
       }
 
-      // Show typing indicator
       showTypingIndicator();
 
       try {
@@ -830,7 +856,6 @@
 
         if (currentUser) {
           await saveMessageToSupabase('assistant', reply);
-          // Non-blocking background ops
           maybeCompressHistory().catch(console.warn);
           extractAndUpsertProfile().catch(console.warn);
         }
@@ -844,6 +869,240 @@
       isSending = false;
       enableInput();
       chatInput.focus();
+    }
+
+    // ================================================================
+    //  IMAGE UPLOAD
+    // ================================================================
+    imageBtn.addEventListener('click', () => {
+      imageFileInput.value = '';
+      imageFileInput.click();
+    });
+
+    imageFileInput.addEventListener('change', () => {
+      const file = imageFileInput.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = e => {
+        const dataUrl = e.target.result;
+        pendingImage = {
+          dataUrl,
+          mediaType: file.type,
+          base64:    dataUrl.split(',')[1]
+        };
+        showImagePreview(dataUrl);
+      };
+      reader.readAsDataURL(file);
+    });
+
+    function showImagePreview(dataUrl) {
+      document.getElementById('imagePreview')?.remove();
+      const preview = document.createElement('div');
+      preview.id = 'imagePreview';
+      preview.className = 'chatImagePreview';
+      preview.innerHTML = `
+        <img src="${dataUrl}" alt="Attached image" class="chatImageThumb" />
+        <button class="chatImageRemoveBtn" type="button" aria-label="Remove image">
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+            <path d="M1 1l10 10M11 1L1 11" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+          </svg>
+        </button>`;
+      chatInputBar.parentNode.insertBefore(preview, chatInputBar);
+      preview.querySelector('.chatImageRemoveBtn').addEventListener('click', clearImagePreview);
+    }
+
+    function clearImagePreview() {
+      document.getElementById('imagePreview')?.remove();
+      pendingImage = null;
+      imageFileInput.value = '';
+    }
+
+    // ================================================================
+    //  DASHBOARD
+    // ================================================================
+    function getWeekStartDate() {
+      const now  = new Date();
+      const day  = now.getDay();
+      const diff = now.getDate() - day + (day === 0 ? -6 : 1);
+      const monday = new Date(now.setDate(diff));
+      monday.setHours(0, 0, 0, 0);
+      return monday.toISOString().split('T')[0];
+    }
+
+    async function renderDashboard() {
+      if (dashboardRendering) return;
+      dashboardRendering = true;
+
+      logUserEvent('dashboard_opened', {});
+
+      const goalText = userProfile?.goal || null;
+
+      dashboardView.innerHTML = `
+        <div class="dashboardContent">
+          <div class="dashGoalBlock">
+            <div class="dashSectionLabel">Your goal</div>
+            <div class="dashGoalText">${goalText ? escapeHtml(goalText) : 'Keep chatting with Lumen to set your goal.'}</div>
+          </div>
+          <div class="dashMissionsBlock" id="dashMissionsBlock">
+            <div class="dashSectionLabel">This week's missions</div>
+            <div class="dashLoading">Generating your missions…</div>
+          </div>
+        </div>`;
+
+      if (!currentUser) {
+        dashboardRendering = false;
+        return;
+      }
+
+      try {
+        const weekStart = getWeekStartDate();
+
+        // Check for existing mission cycle this week
+        const { data: cycle } = await supabaseClient
+          .from('mission_cycles')
+          .select('id')
+          .eq('user_id', currentUser.id)
+          .eq('week_start', weekStart)
+          .maybeSingle();
+
+        let cycleId = cycle?.id;
+
+        if (!cycleId) {
+          // Get conversation summary for context
+          let conversationSummary = null;
+          if (conversationId) {
+            const { data: summaryRow } = await supabaseClient
+              .from('conversations')
+              .select('content')
+              .eq('conversation_id', conversationId)
+              .eq('is_summary', true)
+              .maybeSingle();
+            conversationSummary = summaryRow?.content || null;
+          }
+
+          // Generate missions via AI
+          const genRes = await fetch(API_MISSIONS, {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body:    JSON.stringify({ userProfile, conversationSummary })
+          });
+          const { missions: generated } = await genRes.json();
+
+          // Insert mission_cycle
+          const { data: newCycle, error: cycleErr } = await supabaseClient
+            .from('mission_cycles')
+            .insert([{
+              user_id:        currentUser.id,
+              week_start:     weekStart,
+              snapshot_id:    null,
+              profile_code:   userProfile?.profile_code || null,
+              strategy_key:   'ai_generated',
+              diagnosis_json: {}
+            }])
+            .select()
+            .single();
+
+          if (cycleErr) {
+            console.warn('mission_cycle insert error:', cycleErr.message);
+          } else {
+            cycleId = newCycle.id;
+          }
+
+          // Insert missions if cycle created and we have generated missions
+          if (cycleId && generated?.length) {
+            await supabaseClient.from('missions').insert(
+              generated.map(m => ({
+                user_id:         currentUser.id,
+                cycle_id:        cycleId,
+                mission_bank_id: null,
+                mission_text:    m.title,
+                mission_why:     m.description,
+                category:        'general',
+                difficulty:      'medium',
+                completed:       false
+              }))
+            );
+            logUserEvent('mission_cycle_created', { week_start: weekStart, strategy_key: 'ai_generated' });
+          }
+        }
+
+        if (!cycleId) {
+          document.getElementById('dashMissionsBlock').innerHTML = `
+            <div class="dashSectionLabel">This week's missions</div>
+            <p class="dashEmptyState">Couldn't create missions right now — try refreshing.</p>`;
+          dashboardRendering = false;
+          return;
+        }
+
+        // Fetch missions for this cycle
+        const { data: missions } = await supabaseClient
+          .from('missions')
+          .select('*')
+          .eq('cycle_id', cycleId)
+          .order('created_at', { ascending: true });
+
+        renderMissionsBlock(missions || []);
+
+      } catch (err) {
+        console.warn('renderDashboard error:', err);
+        const block = document.getElementById('dashMissionsBlock');
+        if (block) block.innerHTML = `
+          <div class="dashSectionLabel">This week's missions</div>
+          <p class="dashEmptyState">Couldn't load missions — try refreshing.</p>`;
+      }
+
+      dashboardRendering = false;
+    }
+
+    function renderMissionsBlock(missions) {
+      const container = document.getElementById('dashMissionsBlock');
+      if (!container) return;
+
+      const completedCount = missions.filter(m => m.completed).length;
+      const percent = missions.length ? (completedCount / missions.length) * 100 : 0;
+
+      container.innerHTML = `
+        <div class="dashSectionLabel">This week's missions</div>
+        <div class="dashMissionMeta">
+          <span class="dashMissionCount">${completedCount}/${missions.length} complete</span>
+          <div class="dashProgressTrack"><div class="dashProgressFill" style="width:${percent}%"></div></div>
+        </div>
+        ${missions.map(m => `
+          <div class="dashMissionCard ${m.completed ? 'completed' : ''}" data-mission-id="${m.id}">
+            <div class="dashCheckbox ${m.completed ? 'checked' : ''}">
+              ${m.completed ? `<svg width="10" height="8" viewBox="0 0 10 8" fill="none" aria-hidden="true"><path d="M1 4l3 3 5-6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>` : ''}
+            </div>
+            <div class="dashMissionBody">
+              <div class="dashMissionTitle">${escapeHtml(m.mission_text)}</div>
+              ${m.mission_why ? `<div class="dashMissionWhy">${escapeHtml(m.mission_why)}</div>` : ''}
+            </div>
+          </div>`).join('')}`;
+
+      // Wire click-to-toggle on each card
+      container.querySelectorAll('.dashMissionCard').forEach(card => {
+        card.addEventListener('click', async () => {
+          const missionId = card.dataset.missionId;
+          const mission   = missions.find(m => m.id === missionId);
+          if (!mission) return;
+
+          const next = !mission.completed;
+          mission.completed    = next;
+          mission.completed_at = next ? new Date().toISOString() : null;
+
+          renderMissionsBlock(missions); // re-render with updated state
+
+          await supabaseClient
+            .from('missions')
+            .update({
+              completed:    next,
+              completed_at: mission.completed_at,
+              updated_at:   new Date().toISOString()
+            })
+            .eq('id', missionId);
+
+          logUserEvent(next ? 'mission_completed' : 'mission_uncompleted', { mission_id: missionId });
+        });
+      });
     }
 
     // ================================================================
