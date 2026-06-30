@@ -2665,14 +2665,31 @@ textarea.chatInputField {
   background: var(--card);
   border: 1px solid var(--border);
   border-radius: 16px;
-  padding: 20px;
+  padding: 24px;
   backdrop-filter: blur(12px);
 }
 
+.dashGoalLabel {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 10px;
+}
+
 .dashGoalText {
-  font-size: 15px;
-  font-weight: 500;
+  font-size: 22px;
+  font-weight: 700;
   color: var(--text-primary);
+  line-height: 1.35;
+}
+
+.dashGoalTextEmpty {
+  font-size: 15px;
+  font-weight: 400;
+  font-style: italic;
+  color: var(--text-muted);
   line-height: 1.5;
 }
 

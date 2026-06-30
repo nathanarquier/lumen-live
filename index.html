@@ -442,14 +442,24 @@
     // ================================================================
     function startNewConversation() {
       messages          = [];
-      conversationId    = null;
+      conversationId    = crypto.randomUUID(); // assign UUID immediately
       userMessageCount  = 0;
       authGateDismissed = false;
       chatMessagesEl    = null;
       isSending         = false;
 
-      // Remove auth gate if showing
+      // Remove auth gate and image preview if showing
       document.getElementById('authGate')?.remove();
+      clearImagePreview();
+
+      // Switch to Chat tab if Dashboard is active
+      chatViewBtn.classList.add('active');
+      chatViewBtn.setAttribute('aria-selected', 'true');
+      dashViewBtn.classList.remove('active');
+      dashViewBtn.setAttribute('aria-selected', 'false');
+      chatView.style.display      = 'flex';
+      dashboardView.style.display = 'none';
+      dashboardView.setAttribute('aria-hidden', 'true');
 
       // Restore welcome screen
       chatContent.className = 'chatContent';
@@ -468,8 +478,11 @@
 
       enableInput();
       chatInput.value = '';
+      chatInput.style.height = 'auto';
       wirePromptButtons();
       chatInput.focus();
+
+      logUserEvent('conversation_started', { conversation_id: conversationId });
     }
 
     newConvBtn.addEventListener('click', () => {
@@ -632,23 +645,30 @@
     // ================================================================
     async function saveMessageToSupabase(role, content) {
       if (!currentUser || !conversationId) return;
+      // Normalise content to string — multi-modal messages have array content
+      const text = typeof content === 'string'
+        ? content
+        : (Array.isArray(content)
+            ? (content.find(b => b.type === 'text')?.text || '[Image]')
+            : String(content));
       try {
-        await supabaseClient.from('conversations').insert([{
+        const { error } = await supabaseClient.from('conversations').insert([{
           user_id:         currentUser.id,
           role,
-          content,
+          content:         text,
           conversation_id: conversationId,
           is_summary:      false
         }]);
+        if (error) console.error('saveMessage error:', error.message, '| code:', error.code, '| hint:', error.hint);
       } catch (err) {
-        console.warn('saveMessage error:', err.message);
+        console.error('saveMessage network error:', err.message);
       }
     }
 
     async function loadLatestConversation() {
       if (!currentUser) return;
       try {
-        const { data: latest } = await supabaseClient
+        const { data: latest, error: latestErr } = await supabaseClient
           .from('conversations')
           .select('conversation_id')
           .eq('user_id', currentUser.id)
@@ -656,16 +676,18 @@
           .limit(1)
           .maybeSingle();
 
+        if (latestErr) { console.error('loadLatestConversation (latest):', latestErr.message, latestErr.code); return; }
         if (!latest) return;
 
         conversationId = latest.conversation_id;
 
-        const { data: rows } = await supabaseClient
+        const { data: rows, error: rowsErr } = await supabaseClient
           .from('conversations')
           .select('id, role, content, is_summary')
           .eq('conversation_id', conversationId)
           .order('created_at', { ascending: true });
 
+        if (rowsErr) { console.error('loadLatestConversation (rows):', rowsErr.message, rowsErr.code); return; }
         if (!rows || !rows.length) return;
 
         // Rebuild in-memory messages array (includes summaries for context)
@@ -677,7 +699,7 @@
         });
 
       } catch (err) {
-        console.warn('loadLatestConversation error:', err.message);
+        console.error('loadLatestConversation error:', err.message);
       }
     }
 
@@ -805,8 +827,11 @@
 
       const isFirst = messages.length === 0;
       if (isFirst) {
-        if (!conversationId) conversationId = crypto.randomUUID();
-        logUserEvent('conversation_started', { conversation_id: conversationId });
+        // Generate UUID only if not already set by startNewConversation()
+        if (!conversationId) {
+          conversationId = crypto.randomUUID();
+          logUserEvent('conversation_started', { conversation_id: conversationId });
+        }
       }
 
       // Render user message (with thumbnail if image)
@@ -940,16 +965,23 @@
       dashboardView.innerHTML = `
         <div class="dashboardContent">
           <div class="dashGoalBlock">
-            <div class="dashSectionLabel">Your goal</div>
-            <div class="dashGoalText">${goalText ? escapeHtml(goalText) : 'Keep chatting with Lumen to set your goal.'}</div>
+            <div class="dashGoalLabel">Your goal</div>
+            <div class="${goalText ? 'dashGoalText' : 'dashGoalTextEmpty'}">${goalText ? escapeHtml(goalText) : 'Keep chatting with Lumen to set your goal.'}</div>
           </div>
           <div class="dashMissionsBlock" id="dashMissionsBlock">
             <div class="dashSectionLabel">This week's missions</div>
-            <div class="dashLoading">Generating your missions…</div>
+            <div class="dashLoading">Loading your missions…</div>
           </div>
         </div>`;
 
-      if (!currentUser) {
+      if (!currentUser) { dashboardRendering = false; return; }
+
+      // Check if profile has enough data to generate meaningful missions
+      const hasProfile = !!(userProfile?.goal || userProfile?.career_stage || userProfile?.primary_obstacle);
+      if (!hasProfile) {
+        document.getElementById('dashMissionsBlock').innerHTML = `
+          <div class="dashSectionLabel">This week's missions</div>
+          <p class="dashEmptyState">Keep chatting with Lumen so we can build your missions.</p>`;
         dashboardRendering = false;
         return;
       }
@@ -957,18 +989,20 @@
       try {
         const weekStart = getWeekStartDate();
 
-        // Check for existing mission cycle this week
-        const { data: cycle } = await supabaseClient
+        // Check for existing cycle this week
+        const { data: cycle, error: cycleCheckErr } = await supabaseClient
           .from('mission_cycles')
           .select('id')
           .eq('user_id', currentUser.id)
           .eq('week_start', weekStart)
           .maybeSingle();
 
+        if (cycleCheckErr) console.error('mission_cycles check:', cycleCheckErr.message, cycleCheckErr.code);
+
         let cycleId = cycle?.id;
 
         if (!cycleId) {
-          // Get conversation summary for context
+          // Gather conversation context
           let conversationSummary = null;
           if (conversationId) {
             const { data: summaryRow } = await supabaseClient
@@ -986,15 +1020,28 @@
             headers: { 'Content-Type': 'application/json' },
             body:    JSON.stringify({ userProfile, conversationSummary })
           });
+
+          if (!genRes.ok) {
+            console.error('generate-missions API error:', genRes.status);
+            throw new Error(`generate-missions returned ${genRes.status}`);
+          }
+
           const { missions: generated } = await genRes.json();
 
-          // Insert mission_cycle
-          const { data: newCycle, error: cycleErr } = await supabaseClient
+          if (!generated || !generated.length) {
+            document.getElementById('dashMissionsBlock').innerHTML = `
+              <div class="dashSectionLabel">This week's missions</div>
+              <p class="dashEmptyState">Keep chatting with Lumen so we can build your missions.</p>`;
+            dashboardRendering = false;
+            return;
+          }
+
+          // Insert mission_cycle — snapshot_id intentionally omitted (nullable)
+          const { data: newCycle, error: cycleInsertErr } = await supabaseClient
             .from('mission_cycles')
             .insert([{
               user_id:        currentUser.id,
               week_start:     weekStart,
-              snapshot_id:    null,
               profile_code:   userProfile?.profile_code || null,
               strategy_key:   'ai_generated',
               diagnosis_json: {}
@@ -1002,49 +1049,56 @@
             .select()
             .single();
 
-          if (cycleErr) {
-            console.warn('mission_cycle insert error:', cycleErr.message);
-          } else {
-            cycleId = newCycle.id;
+          if (cycleInsertErr) {
+            console.error('mission_cycle insert:', cycleInsertErr.message, '| code:', cycleInsertErr.code, '| hint:', cycleInsertErr.hint);
+            document.getElementById('dashMissionsBlock').innerHTML = `
+              <div class="dashSectionLabel">This week's missions</div>
+              <p class="dashEmptyState">Couldn't save missions right now — check console for details.</p>`;
+            dashboardRendering = false;
+            return;
           }
 
-          // Insert missions if cycle created and we have generated missions
-          if (cycleId && generated?.length) {
-            await supabaseClient.from('missions').insert(
-              generated.map(m => ({
-                user_id:         currentUser.id,
-                cycle_id:        cycleId,
-                mission_bank_id: null,
-                mission_text:    m.title,
-                mission_why:     m.description,
-                category:        'general',
-                difficulty:      'medium',
-                completed:       false
-              }))
-            );
-            logUserEvent('mission_cycle_created', { week_start: weekStart, strategy_key: 'ai_generated' });
-          }
-        }
+          cycleId = newCycle.id;
 
-        if (!cycleId) {
-          document.getElementById('dashMissionsBlock').innerHTML = `
-            <div class="dashSectionLabel">This week's missions</div>
-            <p class="dashEmptyState">Couldn't create missions right now — try refreshing.</p>`;
-          dashboardRendering = false;
-          return;
+          const { error: missionsInsertErr } = await supabaseClient.from('missions').insert(
+            generated.map(m => ({
+              user_id:         currentUser.id,
+              cycle_id:        cycleId,
+              mission_bank_id: null,
+              mission_text:    m.title,
+              mission_why:     m.description,
+              category:        'general',
+              difficulty:      'medium',
+              completed:       false
+            }))
+          );
+
+          if (missionsInsertErr) {
+            console.error('missions insert:', missionsInsertErr.message, '| code:', missionsInsertErr.code, '| hint:', missionsInsertErr.hint);
+          }
+
+          logUserEvent('mission_cycle_created', { week_start: weekStart, strategy_key: 'ai_generated' });
         }
 
         // Fetch missions for this cycle
-        const { data: missions } = await supabaseClient
+        const { data: missions, error: fetchErr } = await supabaseClient
           .from('missions')
           .select('*')
           .eq('cycle_id', cycleId)
           .order('created_at', { ascending: true });
 
-        renderMissionsBlock(missions || []);
+        if (fetchErr) console.error('missions fetch:', fetchErr.message, fetchErr.code);
+
+        if (!missions || !missions.length) {
+          document.getElementById('dashMissionsBlock').innerHTML = `
+            <div class="dashSectionLabel">This week's missions</div>
+            <p class="dashEmptyState">Keep chatting with Lumen so we can build your missions.</p>`;
+        } else {
+          renderMissionsBlock(missions);
+        }
 
       } catch (err) {
-        console.warn('renderDashboard error:', err);
+        console.error('renderDashboard error:', err);
         const block = document.getElementById('dashMissionsBlock');
         if (block) block.innerHTML = `
           <div class="dashSectionLabel">This week's missions</div>
@@ -1089,7 +1143,7 @@
           mission.completed    = next;
           mission.completed_at = next ? new Date().toISOString() : null;
 
-          renderMissionsBlock(missions); // re-render with updated state
+          renderMissionsBlock(missions); // re-render in place — dashboardRendering stays false after initial load
 
           await supabaseClient
             .from('missions')
