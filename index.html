@@ -873,11 +873,15 @@
         });
 
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const { reply } = await res.json();
+        const { reply, offerMission, missionSuggestion } = await res.json();
 
         hideTypingIndicator();
         addMessageToUI('assistant', reply);
         messages.push({ role: 'assistant', content: reply });
+
+        if (offerMission && missionSuggestion) {
+          renderMissionOfferCard(missionSuggestion);
+        }
 
         if (currentUser) {
           await saveMessageToSupabase('assistant', reply);
@@ -1115,48 +1119,165 @@
       const completedCount = missions.filter(m => m.completed).length;
       const percent = missions.length ? (completedCount / missions.length) * 100 : 0;
 
+      // Incomplete first, completed at bottom
+      const sorted = [...missions].sort((a, b) => Number(a.completed) - Number(b.completed));
+
       container.innerHTML = `
         <div class="dashSectionLabel">This week's missions</div>
         <div class="dashMissionMeta">
           <span class="dashMissionCount">${completedCount}/${missions.length} complete</span>
           <div class="dashProgressTrack"><div class="dashProgressFill" style="width:${percent}%"></div></div>
         </div>
-        ${missions.map(m => `
+        ${sorted.map(m => `
           <div class="dashMissionCard ${m.completed ? 'completed' : ''}" data-mission-id="${m.id}">
-            <div class="dashCheckbox ${m.completed ? 'checked' : ''}">
+            <div class="dashCheckbox ${m.completed ? 'checked' : ''}" data-check-id="${m.id}" role="checkbox" aria-checked="${m.completed}" tabindex="0">
               ${m.completed ? `<svg width="10" height="8" viewBox="0 0 10 8" fill="none" aria-hidden="true"><path d="M1 4l3 3 5-6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>` : ''}
             </div>
             <div class="dashMissionBody">
-              <div class="dashMissionTitle">${escapeHtml(m.mission_text)}</div>
-              ${m.mission_why ? `<div class="dashMissionWhy">${escapeHtml(m.mission_why)}</div>` : ''}
+              <div class="dashMissionTitle ${m.completed ? 'struck' : ''}">${escapeHtml(m.mission_text)}</div>
+              ${m.mission_why && !m.completed ? `<div class="dashMissionWhy">${escapeHtml(m.mission_why)}</div>` : ''}
+              ${m.completed ? `<button class="dashUndoBtn" data-undo-id="${m.id}" type="button">Mark incomplete</button>` : ''}
             </div>
           </div>`).join('')}`;
 
-      // Wire click-to-toggle on each card
-      container.querySelectorAll('.dashMissionCard').forEach(card => {
-        card.addEventListener('click', async () => {
-          const missionId = card.dataset.missionId;
-          const mission   = missions.find(m => m.id === missionId);
-          if (!mission) return;
-
-          const next = !mission.completed;
-          mission.completed    = next;
-          mission.completed_at = next ? new Date().toISOString() : null;
-
-          renderMissionsBlock(missions); // re-render in place — dashboardRendering stays false after initial load
-
-          await supabaseClient
-            .from('missions')
-            .update({
-              completed:    next,
-              completed_at: mission.completed_at,
-              updated_at:   new Date().toISOString()
-            })
-            .eq('id', missionId);
-
-          logUserEvent(next ? 'mission_completed' : 'mission_uncompleted', { mission_id: missionId });
+      // Checkbox → mark complete (only for incomplete missions)
+      container.querySelectorAll('.dashCheckbox[data-check-id]').forEach(box => {
+        box.addEventListener('click', e => {
+          e.stopPropagation();
+          const mission = missions.find(m => m.id === box.dataset.checkId);
+          if (!mission || mission.completed) return;
+          toggleMission(mission, true, missions);
         });
       });
+
+      // Undo button → mark incomplete
+      container.querySelectorAll('.dashUndoBtn[data-undo-id]').forEach(btn => {
+        btn.addEventListener('click', e => {
+          e.stopPropagation();
+          const mission = missions.find(m => m.id === btn.dataset.undoId);
+          if (!mission) return;
+          toggleMission(mission, false, missions);
+        });
+      });
+    }
+
+    async function toggleMission(mission, next, missions) {
+      mission.completed    = next;
+      mission.completed_at = next ? new Date().toISOString() : null;
+
+      renderMissionsBlock(missions);
+
+      const { error } = await supabaseClient
+        .from('missions')
+        .update({
+          completed:    next,
+          completed_at: mission.completed_at,
+          updated_at:   new Date().toISOString()
+        })
+        .eq('id', mission.id);
+
+      if (error) console.error('mission toggle error:', error.message, error.code);
+      logUserEvent(next ? 'mission_completed' : 'mission_uncompleted', { mission_id: mission.id });
+    }
+
+    // ================================================================
+    //  MISSION OFFER CARD (inline, from chat)
+    // ================================================================
+    function renderMissionOfferCard(suggestion) {
+      if (!chatMessagesEl) return;
+      const card = document.createElement('div');
+      card.className = 'missionOfferCard';
+      card.innerHTML = `
+        <div class="missionOfferTitle">${escapeHtml(suggestion.title)}</div>
+        ${suggestion.description ? `<div class="missionOfferDesc">${escapeHtml(suggestion.description)}</div>` : ''}
+        <div class="missionOfferActions">
+          <button class="primary small missionOfferAdd" type="button">Add to dashboard</button>
+          <button class="secondary small missionOfferDismiss" type="button">Not now</button>
+        </div>`;
+
+      chatMessagesEl.appendChild(card);
+      scrollToBottom();
+
+      card.querySelector('.missionOfferAdd').addEventListener('click', async () => {
+        card.remove();
+        await addSuggestedMission(suggestion.title, suggestion.description || '');
+      });
+      card.querySelector('.missionOfferDismiss').addEventListener('click', () => card.remove());
+    }
+
+    async function getOrCreateWeekCycle() {
+      if (!currentUser) return null;
+      const weekStart = getWeekStartDate();
+
+      const { data: existing } = await supabaseClient
+        .from('mission_cycles')
+        .select('id')
+        .eq('user_id', currentUser.id)
+        .eq('week_start', weekStart)
+        .maybeSingle();
+
+      if (existing) return existing.id;
+
+      const { data: newCycle, error } = await supabaseClient
+        .from('mission_cycles')
+        .insert([{
+          user_id:        currentUser.id,
+          week_start:     weekStart,
+          profile_code:   userProfile?.profile_code || null,
+          strategy_key:   'ai_generated',
+          diagnosis_json: {}
+        }])
+        .select()
+        .single();
+
+      if (error) { console.error('getOrCreateWeekCycle:', error.message); return null; }
+      return newCycle.id;
+    }
+
+    async function addSuggestedMission(title, description) {
+      if (!currentUser) { openAuthModal('signup'); return; }
+
+      const cycleId = await getOrCreateWeekCycle();
+      if (!cycleId) { showToast('Couldn\'t save mission — try again.'); return; }
+
+      const { error } = await supabaseClient.from('missions').insert([{
+        user_id:         currentUser.id,
+        cycle_id:        cycleId,
+        mission_bank_id: null,
+        mission_text:    title,
+        mission_why:     description,
+        category:        'general',
+        difficulty:      'medium',
+        completed:       false
+      }]);
+
+      if (error) {
+        console.error('addSuggestedMission insert:', error.message, error.code);
+        showToast('Couldn\'t save mission — try again.');
+        return;
+      }
+
+      showToast('Mission added to your dashboard.');
+      logUserEvent('mission_added_from_chat', { title });
+    }
+
+    function showToast(message) {
+      const existing = document.getElementById('lumenToast');
+      if (existing) existing.remove();
+
+      const toast = document.createElement('div');
+      toast.id = 'lumenToast';
+      toast.className = 'lumenToast';
+      toast.textContent = message;
+      document.body.appendChild(toast);
+
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => toast.classList.add('visible'));
+      });
+      setTimeout(() => {
+        toast.classList.remove('visible');
+        setTimeout(() => toast.remove(), 300);
+      }, 3000);
     }
 
     // ================================================================

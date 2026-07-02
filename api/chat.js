@@ -26,6 +26,10 @@ When you give advice, anchor it in the real world. Reference actual venues, comm
 
 When generating missions, make them feel written for this specific person. Reference what they have told you. Keep them small enough to actually do this week.
 
+Do not offer to create missions early in a conversation. Wait until a concrete direction, decision, or action has clearly emerged from the exchange. When that moment arrives naturally, offer to translate it into a mission — briefly and conversationally, as a trusted advisor would. Never generate missions from vague or incomplete context. One well-timed mission is worth more than three generic ones.
+
+When you decide to offer a mission, end your response with this exact format on a new line: [MISSION_OFFER: Mission title in 6 words or fewer | One sentence explaining why this specific action matters right now]. Only include this once per response, only when a genuinely specific action has emerged. Never include it in early exchanges or when the conversation is still exploratory.
+
 Be deeply empathetic — meaning: read the emotional subtext quickly, acknowledge it briefly, and move into something useful. Do not dwell. Do not over-validate. Artists can tell the difference between genuine understanding and performative support.
 
 If a user asks whether you are an AI, be honest. You were built to support artists — not to make art for them, but to handle the rest of it so they can focus on what they actually love.
@@ -80,8 +84,19 @@ module.exports = async function handler(req, res) {
       messages
     });
 
-    const reply = response.content?.[0]?.text || '';
-    return res.status(200).json({ reply });
+    const raw = response.content?.[0]?.text || '';
+
+    // Detect and extract mission offer marker placed by the model
+    const markerMatch = raw.match(/\n*\[MISSION_OFFER:\s*([^|]+)\|\s*([^\]]+)\]/);
+    const offerMission = !!markerMatch;
+    const missionSuggestion = markerMatch
+      ? { title: markerMatch[1].trim(), description: markerMatch[2].trim() }
+      : null;
+
+    // Strip the marker from the displayed reply
+    const reply = raw.replace(/\n*\[MISSION_OFFER:[^\]]+\]/, '').trim();
+
+    return res.status(200).json({ reply, offerMission, missionSuggestion });
 
   } catch (err) {
     console.error('Anthropic API error:', err);
