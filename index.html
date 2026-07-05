@@ -1220,18 +1220,20 @@
     }
 
     async function getOrCreateWeekCycle() {
-      if (!currentUser) return null;
+      if (!currentUser) { console.warn('[DIAG] getOrCreateWeekCycle: no currentUser, returning null'); return null; }
       const weekStart = getWeekStartDate();
 
-      const { data: existing } = await supabaseClient
+      const { data: existing, error: existingErr } = await supabaseClient
         .from('mission_cycles')
         .select('id')
         .eq('user_id', currentUser.id)
         .eq('week_start', weekStart)
         .maybeSingle();
 
-      if (existing) return existing.id;
+      if (existingErr) console.error('[DIAG] getOrCreateWeekCycle select error:', existingErr.message, '| code:', existingErr.code, '| details:', existingErr.details, '| hint:', existingErr.hint);
+      if (existing) { console.log('[DIAG] getOrCreateWeekCycle: found existing cycle', existing.id); return existing.id; }
 
+      console.log('[DIAG] getOrCreateWeekCycle: no existing cycle, inserting new for week', weekStart);
       const { data: newCycle, error } = await supabaseClient
         .from('mission_cycles')
         .insert([{
@@ -1244,15 +1246,21 @@
         .select()
         .single();
 
-      if (error) { console.error('getOrCreateWeekCycle:', error.message); return null; }
+      if (error) {
+        console.error('[DIAG] getOrCreateWeekCycle INSERT FAILED — message:', error.message, '| code:', error.code, '| details:', error.details, '| hint:', error.hint);
+        return null;
+      }
+      console.log('[DIAG] getOrCreateWeekCycle: inserted new cycle', newCycle.id);
       return newCycle.id;
     }
 
     async function addSuggestedMission(title, description) {
+      console.log('[DIAG] addSuggestedMission: called, currentUser =', currentUser?.id, '| title =', title);
       if (!currentUser) { openAuthModal('signup'); return; }
 
       const cycleId = await getOrCreateWeekCycle();
-      if (!cycleId) { showToast('Couldn\'t save mission — try again.'); return; }
+      console.log('[DIAG] addSuggestedMission: cycleId returned =', cycleId);
+      if (!cycleId) { console.error('[DIAG] addSuggestedMission: cycleId is null — aborting before insert'); showToast('Couldn\'t save mission — try again.'); return; }
 
       const { error } = await supabaseClient.from('missions').insert([{
         user_id:         currentUser.id,
