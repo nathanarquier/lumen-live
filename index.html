@@ -659,14 +659,16 @@
           conversation_id: conversationId,
           is_summary:      false
         }]);
-        if (error) console.error('saveMessage error:', error.message, '| code:', error.code, '| hint:', error.hint);
+        if (error) console.error('[DIAG] saveMessage FAILED:', error.message, '| code:', error.code, '| details:', error.details, '| hint:', error.hint);
+        else console.log('[DIAG] saveMessage OK: role =', role, '| conv =', conversationId);
       } catch (err) {
-        console.error('saveMessage network error:', err.message);
+        console.error('[DIAG] saveMessage network error:', err.message);
       }
     }
 
     async function loadLatestConversation() {
       if (!currentUser) return;
+      console.log('[DIAG] loadLatestConversation: starting, user =', currentUser.id);
       try {
         const { data: latest, error: latestErr } = await supabaseClient
           .from('conversations')
@@ -676,8 +678,12 @@
           .limit(1)
           .maybeSingle();
 
-        if (latestErr) { console.error('loadLatestConversation (latest):', latestErr.message, latestErr.code); return; }
-        if (!latest) return;
+        if (latestErr) {
+          console.error('[DIAG] loadLatestConversation (latest query) FAILED:', latestErr.message, '| code:', latestErr.code, '| details:', latestErr.details, '| hint:', latestErr.hint);
+          return;
+        }
+        console.log('[DIAG] loadLatestConversation: latest row =', JSON.stringify(latest));
+        if (!latest) { console.log('[DIAG] loadLatestConversation: no conversations in DB, stopping'); return; }
 
         conversationId = latest.conversation_id;
 
@@ -687,19 +693,24 @@
           .eq('conversation_id', conversationId)
           .order('created_at', { ascending: true });
 
-        if (rowsErr) { console.error('loadLatestConversation (rows):', rowsErr.message, rowsErr.code); return; }
-        if (!rows || !rows.length) return;
+        if (rowsErr) {
+          console.error('[DIAG] loadLatestConversation (rows query) FAILED:', rowsErr.message, '| code:', rowsErr.code, '| details:', rowsErr.details, '| hint:', rowsErr.hint);
+          return;
+        }
+        console.log('[DIAG] loadLatestConversation: rows returned =', rows?.length, '| ids:', rows?.map(r => r.id));
+        if (!rows || !rows.length) { console.log('[DIAG] loadLatestConversation: rows array empty, stopping'); return; }
 
         // Rebuild in-memory messages array (includes summaries for context)
         messages = rows.map(r => ({ role: r.role, content: r.content }));
 
         // Render non-summary messages in the UI
-        rows.forEach(r => {
-          if (!r.is_summary) addMessageToUI(r.role, r.content);
-        });
+        const nonSummary = rows.filter(r => !r.is_summary);
+        console.log('[DIAG] loadLatestConversation: rendering', nonSummary.length, 'non-summary messages');
+        nonSummary.forEach(r => addMessageToUI(r.role, r.content));
+        console.log('[DIAG] loadLatestConversation: render complete, chatMessagesEl =', !!chatMessagesEl);
 
       } catch (err) {
-        console.error('loadLatestConversation error:', err.message);
+        console.error('[DIAG] loadLatestConversation: caught exception:', err.message);
       }
     }
 
@@ -1078,7 +1089,10 @@
           );
 
           if (missionsInsertErr) {
-            console.error('missions insert:', missionsInsertErr.message, '| code:', missionsInsertErr.code, '| hint:', missionsInsertErr.hint);
+            console.error('[DIAG] renderDashboard missions INSERT FAILED — message:', missionsInsertErr.message, '| code:', missionsInsertErr.code, '| details:', missionsInsertErr.details, '| hint:', missionsInsertErr.hint);
+            console.error('[DIAG] renderDashboard missions payload sample:', generated[0]);
+          } else {
+            console.log('[DIAG] renderDashboard missions INSERT OK, count =', generated.length);
           }
 
           logUserEvent('mission_cycle_created', { week_start: weekStart, strategy_key: 'ai_generated' });
@@ -1252,7 +1266,8 @@
       }]);
 
       if (error) {
-        console.error('addSuggestedMission insert:', error.message, error.code);
+        console.error('[DIAG] addSuggestedMission INSERT FAILED — message:', error.message, '| code:', error.code, '| details:', error.details, '| hint:', error.hint);
+        console.error('[DIAG] addSuggestedMission payload was:', { user_id: currentUser.id, cycle_id: cycleId, mission_bank_id: null, mission_text: title, mission_why: description, category: 'general', difficulty: 'medium', completed: false });
         showToast('Couldn\'t save mission — try again.');
         return;
       }
@@ -1317,9 +1332,11 @@
     // ================================================================
     async function initChat() {
       currentUser = await getCurrentUser();
+      console.log('[DIAG] initChat: currentUser =', currentUser?.id || null);
 
       if (currentUser) {
         await Promise.all([loadUserProfile(), loadLatestConversation()]);
+        console.log('[DIAG] initChat: after load — messages.length =', messages.length, '| conversationId =', conversationId);
         unlockDashboard();
         updateAccountBtn();
       }
