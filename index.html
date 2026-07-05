@@ -230,8 +230,9 @@
     let isSending         = false;
     let chatMessagesEl    = null; // reference to .chatMessages wrapper
     let pendingImage      = null; // {dataUrl, mediaType, base64}
-    let dashboardRendering = false;
-    let loadGeneration    = 0;    // incremented by startNewConversation / loadConversationById to abort in-flight loads
+    let dashboardRendering    = false;
+    let loadGeneration        = 0;    // incremented by startNewConversation / loadConversationById to abort in-flight loads
+    let lastDismissedMission  = null; // { title, description } — set when user dismisses or adds an offer; prevents re-render of the same offer
 
     // --- DOM ---
     const chatInput     = document.getElementById('chatInput');
@@ -445,12 +446,13 @@
     // ================================================================
     function startNewConversation() {
       loadGeneration++;            // invalidate any in-flight loadLatestConversation / loadAndRenderConversation
-      messages          = [];
-      conversationId    = crypto.randomUUID(); // assign UUID immediately
-      userMessageCount  = 0;
-      authGateDismissed = false;
-      chatMessagesEl    = null;
-      isSending         = false;
+      messages             = [];
+      conversationId       = crypto.randomUUID(); // assign UUID immediately
+      userMessageCount     = 0;
+      authGateDismissed    = false;
+      chatMessagesEl       = null;
+      isSending            = false;
+      lastDismissedMission = null; // new conversation — reset offer dedupe
 
       // Remove auth gate and image preview if showing
       document.getElementById('authGate')?.remove();
@@ -1061,7 +1063,7 @@
         addMessageToUI('assistant', reply);
         messages.push({ role: 'assistant', content: reply });
 
-        if (offerMission && missionSuggestion) {
+        if (offerMission && missionSuggestion && !missionAlreadyDismissed(missionSuggestion)) {
           renderMissionOfferCard(missionSuggestion);
         }
 
@@ -1368,6 +1370,12 @@
     // ================================================================
     //  MISSION OFFER CARD (inline, from chat)
     // ================================================================
+    function missionAlreadyDismissed(suggestion) {
+      if (!lastDismissedMission) return false;
+      return lastDismissedMission.title === suggestion.title &&
+             lastDismissedMission.description === suggestion.description;
+    }
+
     function renderMissionOfferCard(suggestion) {
       if (!chatMessagesEl) return;
       const card = document.createElement('div');
@@ -1384,10 +1392,14 @@
       scrollToBottom();
 
       card.querySelector('.missionOfferAdd').addEventListener('click', async () => {
+        lastDismissedMission = { title: suggestion.title, description: suggestion.description };
         card.remove();
         await addSuggestedMission(suggestion.title, suggestion.description || '');
       });
-      card.querySelector('.missionOfferDismiss').addEventListener('click', () => card.remove());
+      card.querySelector('.missionOfferDismiss').addEventListener('click', () => {
+        lastDismissedMission = { title: suggestion.title, description: suggestion.description };
+        card.remove();
+      });
     }
 
     async function getOrCreateWeekCycle() {
