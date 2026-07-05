@@ -37,7 +37,7 @@ You have access to this user's profile and conversation history. Use it. Never a
 const TOOLS = [
   {
     name: 'offer_mission',
-    description: 'Offer the user a specific, personalised mission when a concrete and actionable next step has clearly emerged from the conversation. Only call this when the direction is specific enough to write a mission that feels written for this person — title referencing their actual situation, description explaining why it matters right now. Never call this in early or exploratory exchanges, or when the user has not yet committed to a clear direction.',
+    description: 'Offer a specific, personalised mission when a concrete, actionable next step the user could take this week has emerged — including as soon as they signal buy-in ("sounds good", "okay", "yeah"). Err toward offering; a missed offer is worse than an early one. Call once per distinct direction — do not call again for an action already offered unless it has materially changed. Title must reference their actual situation; description explains why it matters right now.',
     input_schema: {
       type: 'object',
       properties: {
