@@ -231,6 +231,7 @@
     let chatMessagesEl    = null; // reference to .chatMessages wrapper
     let pendingImage      = null; // {dataUrl, mediaType, base64}
     let dashboardRendering = false;
+    let loadGeneration    = 0;    // incremented by startNewConversation / loadConversationById to abort in-flight loads
 
     // --- DOM ---
     const chatInput     = document.getElementById('chatInput');
@@ -367,6 +368,7 @@
               await saveMessageToSupabase(msg.role, msg.content);
             }
           }
+          await loadSidebarConversations();
           unlockDashboard();
           updateAccountBtn();
         }, 900);
@@ -389,6 +391,7 @@
       if (messages.length === 0) {
         await loadLatestConversation();
       }
+      await loadSidebarConversations();
       unlockDashboard();
       updateAccountBtn();
     }
@@ -441,6 +444,7 @@
     //  NEW CONVERSATION
     // ================================================================
     function startNewConversation() {
+      loadGeneration++;            // invalidate any in-flight loadLatestConversation / loadAndRenderConversation
       messages          = [];
       conversationId    = crypto.randomUUID(); // assign UUID immediately
       userMessageCount  = 0;
@@ -451,6 +455,9 @@
       // Remove auth gate and image preview if showing
       document.getElementById('authGate')?.remove();
       clearImagePreview();
+
+      // Deactivate sidebar — new conversation has no entry yet
+      setSidebarActiveConv(null);
 
       // Switch to Chat tab if Dashboard is active
       chatViewBtn.classList.add('active');
@@ -669,6 +676,7 @@
     async function loadLatestConversation() {
       if (!currentUser) return;
       console.log('[DIAG] loadLatestConversation: starting, user =', currentUser.id);
+      const myGen = loadGeneration;
       try {
         const { data: latest, error: latestErr } = await supabaseClient
           .from('conversations')
@@ -678,6 +686,9 @@
           .limit(1)
           .maybeSingle();
 
+        // Abort if startNewConversation() fired while this fetch was in flight
+        if (loadGeneration !== myGen) { console.log('[DIAG] loadLatestConversation: aborted — generation changed'); return; }
+
         if (latestErr) {
           console.error('[DIAG] loadLatestConversation (latest query) FAILED:', latestErr.message, '| code:', latestErr.code, '| details:', latestErr.details, '| hint:', latestErr.hint);
           return;
@@ -686,32 +697,190 @@
         if (!latest) { console.log('[DIAG] loadLatestConversation: no conversations in DB, stopping'); return; }
 
         conversationId = latest.conversation_id;
+        await loadAndRenderConversation(conversationId);
 
-        const { data: rows, error: rowsErr } = await supabaseClient
-          .from('conversations')
-          .select('id, role, content, is_summary')
-          .eq('conversation_id', conversationId)
-          .order('created_at', { ascending: true });
-
-        if (rowsErr) {
-          console.error('[DIAG] loadLatestConversation (rows query) FAILED:', rowsErr.message, '| code:', rowsErr.code, '| details:', rowsErr.details, '| hint:', rowsErr.hint);
-          return;
-        }
-        console.log('[DIAG] loadLatestConversation: rows returned =', rows?.length, '| ids:', rows?.map(r => r.id));
-        if (!rows || !rows.length) { console.log('[DIAG] loadLatestConversation: rows array empty, stopping'); return; }
-
-        // Rebuild in-memory messages array (includes summaries for context)
-        messages = rows.map(r => ({ role: r.role, content: r.content }));
-
-        // Render non-summary messages in the UI
-        const nonSummary = rows.filter(r => !r.is_summary);
-        console.log('[DIAG] loadLatestConversation: rendering', nonSummary.length, 'non-summary messages');
-        nonSummary.forEach(r => addMessageToUI(r.role, r.content));
-        console.log('[DIAG] loadLatestConversation: render complete, chatMessagesEl =', !!chatMessagesEl);
+        console.log('[DIAG] loadLatestConversation: complete, messages.length =', messages.length);
 
       } catch (err) {
         console.error('[DIAG] loadLatestConversation: caught exception:', err.message);
       }
+    }
+
+    // Shared helper: fetch and render all messages for a given conversationId.
+    // Respects loadGeneration — aborts if a newer load was started while awaiting.
+    async function loadAndRenderConversation(convId) {
+      const myGen = loadGeneration;
+      try {
+        const { data: rows, error: rowsErr } = await supabaseClient
+          .from('conversations')
+          .select('id, role, content, is_summary')
+          .eq('conversation_id', convId)
+          .order('created_at', { ascending: true });
+
+        if (loadGeneration !== myGen) { console.log('[DIAG] loadAndRenderConversation: aborted — generation changed'); return; }
+
+        if (rowsErr) {
+          console.error('[DIAG] loadAndRenderConversation (rows query) FAILED:', rowsErr.message, '| code:', rowsErr.code, '| details:', rowsErr.details, '| hint:', rowsErr.hint);
+          return;
+        }
+        console.log('[DIAG] loadAndRenderConversation: rows returned =', rows?.length);
+        if (!rows || !rows.length) { console.log('[DIAG] loadAndRenderConversation: empty, stopping'); return; }
+
+        messages = rows.map(r => ({ role: r.role, content: r.content }));
+
+        // Switch content area to active message stream
+        chatContent.className = 'chatContent chatActive';
+        chatContent.innerHTML = '';
+        chatMessagesEl = null;
+
+        const nonSummary = rows.filter(r => !r.is_summary);
+        console.log('[DIAG] loadAndRenderConversation: rendering', nonSummary.length, 'non-summary messages');
+        nonSummary.forEach(r => addMessageToUI(r.role, r.content));
+
+      } catch (err) {
+        console.error('[DIAG] loadAndRenderConversation: caught exception:', err.message);
+      }
+    }
+
+    // Load a specific conversation by ID — used by sidebar item clicks.
+    async function loadConversationById(convId) {
+      if (convId === conversationId && chatMessagesEl) return; // already showing
+
+      loadGeneration++;
+      messages          = [];
+      conversationId    = convId;
+      chatMessagesEl    = null;
+      isSending         = false;
+
+      document.getElementById('authGate')?.remove();
+      clearImagePreview();
+
+      // Ensure we're on the chat tab
+      chatViewBtn.classList.add('active');
+      chatViewBtn.setAttribute('aria-selected', 'true');
+      dashViewBtn.classList.remove('active');
+      dashViewBtn.setAttribute('aria-selected', 'false');
+      chatView.style.display      = 'flex';
+      dashboardView.style.display = 'none';
+      dashboardView.setAttribute('aria-hidden', 'true');
+
+      // Clear content area before fetching
+      chatContent.className = 'chatContent chatActive';
+      chatContent.innerHTML = '';
+
+      await loadAndRenderConversation(convId);
+      setSidebarActiveConv(convId);
+    }
+
+    // ================================================================
+    //  SIDEBAR CONVERSATION LIST
+    // ================================================================
+    function truncateText(text, maxLen) {
+      if (!text) return '';
+      return text.length <= maxLen ? text : text.slice(0, maxLen).trim() + '…';
+    }
+
+    function relativeTime(isoString) {
+      const diff  = Date.now() - new Date(isoString).getTime();
+      const mins  = Math.floor(diff / 60000);
+      const hours = Math.floor(diff / 3600000);
+      const days  = Math.floor(diff / 86400000);
+      if (mins < 1)   return 'Just now';
+      if (mins < 60)  return `${mins}m ago`;
+      if (hours < 24) return `${hours}h ago`;
+      if (days === 1) return 'Yesterday';
+      if (days < 7)   return `${days}d ago`;
+      return new Date(isoString).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+    }
+
+    async function loadSidebarConversations() {
+      if (!currentUser) return;
+      const list = document.querySelector('.sidebarConvList');
+      if (!list) return;
+      try {
+        const { data: rows, error } = await supabaseClient
+          .from('conversations')
+          .select('conversation_id, role, content, created_at')
+          .eq('user_id', currentUser.id)
+          .eq('is_summary', false)
+          .order('created_at', { ascending: true });
+
+        if (error) { console.error('[DIAG] loadSidebarConversations error:', error.message); return; }
+        if (!rows || !rows.length) return; // leave empty state div
+
+        // Group rows by conversation_id in JS
+        const convMap = new Map();
+        for (const row of rows) {
+          if (!convMap.has(row.conversation_id)) {
+            convMap.set(row.conversation_id, { id: row.conversation_id, messages: [] });
+          }
+          convMap.get(row.conversation_id).messages.push(row);
+        }
+
+        // Sort conversations most-recent first (by last message timestamp)
+        const convList = [...convMap.values()].sort((a, b) => {
+          const aTime = new Date(a.messages[a.messages.length - 1].created_at);
+          const bTime = new Date(b.messages[b.messages.length - 1].created_at);
+          return bTime - aTime;
+        });
+
+        renderSidebarConversations(convList);
+      } catch (err) {
+        console.error('loadSidebarConversations error:', err.message);
+      }
+    }
+
+    function renderSidebarConversations(conversations) {
+      const list = document.querySelector('.sidebarConvList');
+      if (!list) return;
+
+      if (!conversations.length) {
+        list.innerHTML = '<div class="sidebarConvEmpty">Your conversations will appear here</div>';
+        return;
+      }
+
+      list.innerHTML = conversations.map(conv => {
+        const firstUserMsg = conv.messages.find(m => m.role === 'user');
+        const preview  = truncateText(firstUserMsg?.content || 'Conversation', 42);
+        const lastTime = conv.messages[conv.messages.length - 1].created_at;
+        const isActive = conv.id === conversationId;
+        return `<button class="sidebarConvItem${isActive ? ' active' : ''}" data-conv-id="${conv.id}" type="button">
+          <span class="sidebarConvPreview">${escapeHtml(preview)}</span>
+          <span class="sidebarConvTime">${relativeTime(lastTime)}</span>
+        </button>`;
+      }).join('');
+
+      list.querySelectorAll('.sidebarConvItem[data-conv-id]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          loadConversationById(btn.dataset.convId);
+          closeSidebar();
+        });
+      });
+    }
+
+    // Prepend a new sidebar entry for the just-started conversation (called after first save).
+    function prependSidebarConversation(convId, previewText) {
+      const list = document.querySelector('.sidebarConvList');
+      if (!list) return;
+      list.querySelector('.sidebarConvEmpty')?.remove();
+      list.querySelectorAll('.sidebarConvItem').forEach(i => i.classList.remove('active'));
+
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'sidebarConvItem active';
+      btn.dataset.convId = convId;
+      btn.innerHTML = `
+        <span class="sidebarConvPreview">${escapeHtml(truncateText(previewText, 42))}</span>
+        <span class="sidebarConvTime">Just now</span>`;
+      list.insertBefore(btn, list.firstChild);
+      btn.addEventListener('click', () => { loadConversationById(btn.dataset.convId); closeSidebar(); });
+    }
+
+    // Update the active class across all sidebar items.
+    function setSidebarActiveConv(convId) {
+      document.querySelectorAll('.sidebarConvItem').forEach(item => {
+        item.classList.toggle('active', item.dataset.convId === convId);
+      });
     }
 
     async function maybeCompressHistory() {
@@ -869,6 +1038,8 @@
       const supabaseText = image ? (content ? `[Image] ${content}` : '[Image]') : content;
       if (currentUser) {
         await saveMessageToSupabase('user', supabaseText);
+        // First message of a new conversation — add it to the sidebar immediately
+        if (isFirst) prependSidebarConversation(conversationId, content || '[Image]');
       } else {
         userMessageCount++;
         if (userMessageCount === 3 && !authGateDismissed) showAuthGate();
@@ -1345,6 +1516,8 @@
       if (currentUser) {
         await Promise.all([loadUserProfile(), loadLatestConversation()]);
         console.log('[DIAG] initChat: after load — messages.length =', messages.length, '| conversationId =', conversationId);
+        // Load sidebar after loadLatestConversation sets conversationId (so active item highlights correctly)
+        await loadSidebarConversations();
         unlockDashboard();
         updateAccountBtn();
       }

@@ -26,15 +26,34 @@ When you give advice, anchor it in the real world. Reference actual venues, comm
 
 When generating missions, make them feel written for this specific person. Reference what they have told you. Keep them small enough to actually do this week.
 
-Do not offer to create missions early in a conversation. Wait until a concrete direction, decision, or action has clearly emerged from the exchange. When that moment arrives naturally, offer to translate it into a mission — briefly and conversationally, as a trusted advisor would. Never generate missions from vague or incomplete context. One well-timed mission is worth more than three generic ones.
-
-When you decide to offer a mission, end your response with this exact format on a new line: [MISSION_OFFER: Mission title in 6 words or fewer | One sentence explaining why this specific action matters right now]. Only include this once per response, only when a genuinely specific action has emerged. Never include it in early exchanges or when the conversation is still exploratory.
+Do not offer to create missions early in a conversation. Wait until a concrete direction, decision, or action has clearly emerged from the exchange. When that moment arrives naturally, call the offer_mission tool to translate it into a mission — briefly and conversationally, as a trusted advisor would. Never generate missions from vague or incomplete context. One well-timed mission is worth more than three generic ones. When you call the tool, always include a brief conversational reply in your text response alongside it — do not let the tool call replace the reply.
 
 Be deeply empathetic — meaning: read the emotional subtext quickly, acknowledge it briefly, and move into something useful. Do not dwell. Do not over-validate. Artists can tell the difference between genuine understanding and performative support.
 
 If a user asks whether you are an AI, be honest. You were built to support artists — not to make art for them, but to handle the rest of it so they can focus on what they actually love.
 
 You have access to this user's profile and conversation history. Use it. Never ask for something they have already told you.`;
+
+const TOOLS = [
+  {
+    name: 'offer_mission',
+    description: 'Offer the user a specific, personalised mission when a concrete and actionable next step has clearly emerged from the conversation. Only call this when the direction is specific enough to write a mission that feels written for this person — title referencing their actual situation, description explaining why it matters right now. Never call this in early or exploratory exchanges, or when the user has not yet committed to a clear direction.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        title: {
+          type: 'string',
+          description: 'Mission title — 6 words or fewer, action-first. Must feel specific to this person, not generic.'
+        },
+        description: {
+          type: 'string',
+          description: 'One sentence explaining why this specific action matters right now for this user.'
+        }
+      },
+      required: ['title', 'description']
+    }
+  }
+];
 
 module.exports = async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -80,21 +99,24 @@ module.exports = async function handler(req, res) {
     const response = await client.messages.create({
       model: 'claude-haiku-4-5-20251001',
       max_tokens: 1024,
+      tools: TOOLS,
+      tool_choice: { type: 'auto' },
       system: systemBlocks,
       messages
     });
 
-    const raw = response.content?.[0]?.text || '';
+    const contentBlocks = response.content || [];
 
-    // Detect and extract mission offer marker placed by the model
-    const markerMatch = raw.match(/\n*\[MISSION_OFFER:\s*([^|]+)\|\s*([^\]]+)\]/);
-    const offerMission = !!markerMatch;
-    const missionSuggestion = markerMatch
-      ? { title: markerMatch[1].trim(), description: markerMatch[2].trim() }
+    // Extract conversational text reply
+    const textBlock = contentBlocks.find(b => b.type === 'text');
+    const reply = textBlock?.text?.trim() || '';
+
+    // Extract structured mission offer if the model called the tool
+    const toolBlock = contentBlocks.find(b => b.type === 'tool_use' && b.name === 'offer_mission');
+    const offerMission = !!toolBlock;
+    const missionSuggestion = toolBlock
+      ? { title: (toolBlock.input?.title || '').trim(), description: (toolBlock.input?.description || '').trim() }
       : null;
-
-    // Strip the marker from the displayed reply
-    const reply = raw.replace(/\n*\[MISSION_OFFER:[^\]]+\]/, '').trim();
 
     return res.status(200).json({ reply, offerMission, missionSuggestion });
 

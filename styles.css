@@ -2895,3 +2895,57 @@ textarea.chatInputField {
 .dashCheckbox {
   cursor: pointer;
 }
+
+/* ================================================================
+   SIDEBAR CONVERSATION LIST
+   ================================================================ */
+.sidebarConvItem {
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  padding: 10px 12px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  box-shadow: none;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.sidebarConvItem:hover {
+  background: rgba(20,20,20,0.05);
+  transform: none;
+  box-shadow: none;
+  border-color: transparent;
+}
+
+.sidebarConvItem.active {
+  background: rgba(77,184,174,0.1);
+  border-color: rgba(77,184,174,0.18);
+}
+
+.sidebarConvItem.active:hover {
+  background: rgba(77,184,174,0.14);
+  transform: none;
+  box-shadow: none;
+}
+
+.sidebarConvPreview {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+  display: block;
+}
+
+.sidebarConvTime {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-weight: 400;
+}
