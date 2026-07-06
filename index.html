@@ -939,7 +939,7 @@
       try {
         const { data } = await supabaseClient
           .from('user_profile')
-          .select('goal, career_stage, primary_obstacle, current_decision, profile_code')
+          .select('goal, career_stage, primary_obstacle, current_decision, profile_code, goal_status, goal_drift_count')
           .eq('user_id', currentUser.id)
           .maybeSingle();
         if (data) userProfile = data;
@@ -964,6 +964,12 @@
         const updates = Object.fromEntries(
           Object.entries(profile).filter(([, v]) => v != null && v !== '')
         );
+
+        // Stage 1: goal is a confirmed anchor — never overwrite it from extraction once set
+        if (userProfile?.goal_status === 'set') {
+          delete updates.goal;
+        }
+
         if (!Object.keys(updates).length) return;
 
         const prev = userProfile || {};
