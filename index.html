@@ -1056,7 +1056,11 @@
     // (conversations remaining before re-proposal is allowed after a decline).
     // ================================================================
     async function evaluateDrift(priorConvId) {
-      if (!currentUser || !userProfile?.goal) return;
+      console.log('[DIAG] evaluateDrift: entry — priorConvId =', priorConvId, '| currentUser =', currentUser?.id || null, '| goal =', userProfile?.goal || null, '| goal_status =', userProfile?.goal_status || null);
+      if (!currentUser || !userProfile?.goal) {
+        console.log('[DIAG] evaluateDrift: bailed at goal-check — currentUser =', !!currentUser, '| goal =', userProfile?.goal || null);
+        return;
+      }
 
       try {
         // Fetch prior conversation messages
@@ -1066,8 +1070,12 @@
           .eq('conversation_id', priorConvId)
           .order('created_at', { ascending: true });
 
+        console.log('[DIAG] evaluateDrift: rows fetched =', rows?.length ?? 'null', '| priorConvId =', priorConvId);
         // Need enough substance to evaluate — skip very short sessions
-        if (!rows || rows.length < 4) return;
+        if (!rows || rows.length < 4) {
+          console.log('[DIAG] evaluateDrift: bailed — not enough rows (<4)');
+          return;
+        }
 
         const res = await fetch(API_DRIFT, {
           method:  'POST',
@@ -1078,7 +1086,10 @@
           })
         });
 
-        if (!res.ok) return;
+        if (!res.ok) {
+          console.log('[DIAG] evaluateDrift: bailed — API_DRIFT returned', res.status);
+          return;
+        }
         const { drifting } = await res.json();
 
         const currentCount    = userProfile?.goal_drift_count    ?? 0;
