@@ -216,9 +216,10 @@
     // ================================================================
 
     // --- Config ---
-    const API_CHAT     = '/api/chat';
-    const API_EXTRACT  = '/api/extract-profile';
-    const API_MISSIONS = '/api/generate-missions';
+    const API_CHAT       = '/api/chat';
+    const API_EXTRACT    = '/api/extract-profile';
+    const API_MISSIONS   = '/api/generate-missions';
+    const API_DRIFT      = '/api/drift-check';
 
     // --- Session state ---
     let messages          = [];   // {role, content|content[]}[] passed to Anthropic
@@ -235,6 +236,7 @@
     let lastDismissedMission  = null; // { title, description } — set when user dismisses or adds an offer; prevents re-render of the same offer
     let lastRejectedGoal      = null; // goal text rejected by user — skip re-proposing the same goal
     let goalProposalPending   = false; // true while a goal proposal card is visible — prevents duplicates
+    let driftProposalShown    = false; // prevents showing the drift proposal more than once per session
 
     // --- DOM ---
     const chatInput     = document.getElementById('chatInput');
@@ -457,9 +459,11 @@
       lastDismissedMission = null; // new conversation — reset offer dedupe
       lastRejectedGoal     = null;
       goalProposalPending  = false;
+      driftProposalShown   = false;
 
-      // Remove auth gate and image preview if showing
+      // Remove auth gate, drift proposal, and image preview if showing
       document.getElementById('authGate')?.remove();
+      document.getElementById('driftProposalBanner')?.remove();
       clearImagePreview();
 
       // Deactivate sidebar — new conversation has no entry yet
@@ -499,8 +503,13 @@
     }
 
     newConvBtn.addEventListener('click', () => {
+      const priorConvId = conversationId; // capture before startNewConversation reassigns it
       startNewConversation();
       closeSidebar();
+      // Evaluate prior conversation for goal drift in background
+      if (priorConvId && userProfile?.goal_status === 'set') {
+        evaluateDrift(priorConvId).catch(console.warn);
+      }
     });
 
     // ================================================================
@@ -943,7 +952,7 @@
       try {
         const { data } = await supabaseClient
           .from('user_profile')
-          .select('goal, career_stage, primary_obstacle, current_decision, profile_code, goal_status, goal_drift_count')
+          .select('goal, career_stage, primary_obstacle, current_decision, profile_code, goal_status, goal_drift_count, goal_drift_cooldown')
           .eq('user_id', currentUser.id)
           .maybeSingle();
         if (data) userProfile = data;
@@ -1038,6 +1047,147 @@
         goalEl.className = 'dashGoalText';
         goalEl.textContent = goal;
       }
+    }
+
+    // ================================================================
+    //  STAGE 3: GOAL DRIFT DETECTION
+    // Runs once at new-conversation start against the prior conversation.
+    // Uses goal_drift_count (consecutive drifts) and goal_drift_cooldown
+    // (conversations remaining before re-proposal is allowed after a decline).
+    // ================================================================
+    async function evaluateDrift(priorConvId) {
+      if (!currentUser || !userProfile?.goal) return;
+
+      try {
+        // Fetch prior conversation messages
+        const { data: rows } = await supabaseClient
+          .from('conversations')
+          .select('role, content')
+          .eq('conversation_id', priorConvId)
+          .order('created_at', { ascending: true });
+
+        // Need enough substance to evaluate — skip very short sessions
+        if (!rows || rows.length < 4) return;
+
+        const res = await fetch(API_DRIFT, {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({
+            messages: rows.map(r => ({ role: r.role, content: r.content })),
+            goal:     userProfile.goal
+          })
+        });
+
+        if (!res.ok) return;
+        const { drifting } = await res.json();
+
+        const currentCount    = userProfile?.goal_drift_count    ?? 0;
+        const currentCooldown = userProfile?.goal_drift_cooldown ?? 0;
+
+        // Cooldown decrements on every new conversation regardless of drift/non-drift
+        const newCooldown = currentCooldown > 0 ? currentCooldown - 1 : 0;
+        // Consecutive drift counter: increment on drift, reset to 0 on non-drift
+        const newCount    = drifting ? currentCount + 1 : 0;
+
+        console.log(`[DIAG] drift check: drifting=${drifting} count:${currentCount}->${newCount} cooldown:${currentCooldown}->${newCooldown}`);
+
+        const { error: countErr } = await supabaseClient
+          .from('user_profile')
+          .upsert([{
+            user_id:             currentUser.id,
+            goal_drift_count:    newCount,
+            goal_drift_cooldown: newCooldown
+          }], { onConflict: 'user_id' });
+
+        if (countErr) console.error('[DIAG] drift count update failed:', countErr.message);
+
+        userProfile = { ...userProfile, goal_drift_count: newCount, goal_drift_cooldown: newCooldown };
+
+        // Show proposal when threshold reached, not in cooldown, not already shown, user hasn't started typing
+        const shouldPropose = newCount >= 3 && newCooldown === 0 && !driftProposalShown;
+        if (shouldPropose && messages.length === 0) {
+          driftProposalShown = true;
+          showDriftProposalBanner();
+        }
+
+      } catch (err) {
+        console.warn('evaluateDrift error:', err.message);
+      }
+    }
+
+    function showDriftProposalBanner() {
+      if (document.getElementById('driftProposalBanner')) return;
+
+      const banner = document.createElement('div');
+      banner.id        = 'driftProposalBanner';
+      banner.className = 'driftProposalBanner';
+      banner.innerHTML = `
+        <div class="driftProposalEyebrow">Goal check</div>
+        <p class="driftProposalText">Your last few conversations have been heading in a different direction from your goal. Are you exploring something new?</p>
+        <div class="driftProposalActions">
+          <button class="primary small" id="driftProposalYes" type="button">Explore a new direction</button>
+          <button class="secondary small" id="driftProposalNo" type="button">Keep my goal</button>
+        </div>`;
+
+      chatInputBar.parentNode.insertBefore(banner, chatInputBar);
+
+      document.getElementById('driftProposalYes').addEventListener('click', acceptDriftProposal);
+      document.getElementById('driftProposalNo').addEventListener('click',  declineDriftProposal);
+    }
+
+    async function acceptDriftProposal() {
+      document.getElementById('driftProposalBanner')?.remove();
+      driftProposalShown = false;
+
+      // TODO: when mission archiving is built (missions.status column), archive active missions here
+
+      // Re-open the goal to cold_start so Stage 2 can capture a new one
+      const { error } = await supabaseClient
+        .from('user_profile')
+        .upsert([{
+          user_id:             currentUser.id,
+          goal:                null,
+          goal_status:         'cold_start',
+          goal_drift_count:    0,
+          goal_drift_cooldown: 0
+        }], { onConflict: 'user_id' });
+
+      if (error) {
+        console.error('[DIAG] acceptDriftProposal upsert failed:', error.message);
+        showToast('Something went wrong — try again.');
+        return;
+      }
+
+      userProfile = { ...userProfile, goal: null, goal_status: 'cold_start', goal_drift_count: 0, goal_drift_cooldown: 0 };
+      logUserEvent('goal_drift_accepted', {});
+
+      // Clear goal display on dashboard if visible
+      const goalEl = dashboardView.querySelector('.dashGoalText, .dashGoalTextEmpty');
+      if (goalEl) {
+        goalEl.className    = 'dashGoalTextEmpty';
+        goalEl.textContent  = 'Keep chatting with Lumen to set your goal.';
+      }
+
+      showToast('Goal cleared — chat with Lumen and a new one will emerge.');
+    }
+
+    async function declineDriftProposal() {
+      document.getElementById('driftProposalBanner')?.remove();
+      driftProposalShown = false;
+
+      // Reset drift count and set 3-conversation cooldown
+      const { error } = await supabaseClient
+        .from('user_profile')
+        .upsert([{
+          user_id:             currentUser.id,
+          goal_drift_count:    0,
+          goal_drift_cooldown: 3
+        }], { onConflict: 'user_id' });
+
+      if (error) console.error('[DIAG] declineDriftProposal upsert failed:', error.message);
+
+      userProfile = { ...userProfile, goal_drift_count: 0, goal_drift_cooldown: 3 };
+      logUserEvent('goal_drift_declined', {});
     }
 
     // ================================================================

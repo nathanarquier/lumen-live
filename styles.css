@@ -2544,6 +2544,41 @@ button:active,
   flex-shrink: 0;
 }
 
+/* Drift proposal banner — shown at new-conversation start when goal drift threshold is reached */
+.driftProposalBanner{
+  flex-shrink: 0;
+  padding: 14px 20px;
+  background: linear-gradient(135deg, rgba(235,231,243,0.96), rgba(220,239,242,0.96));
+  border-top: 1px solid rgba(110,91,240,0.15);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  animation: bannerSlide 0.26s ease both;
+}
+
+.driftProposalEyebrow{
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #7c6ef0;
+  margin-bottom: 6px;
+}
+
+.driftProposalText{
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+  line-height: 1.5;
+  margin: 0 0 12px;
+}
+
+.driftProposalActions{
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
 /* Disabled input states */
 .chatInputField:disabled{
   opacity: 0.55;
