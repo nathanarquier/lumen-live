@@ -2949,3 +2949,47 @@ textarea.chatInputField {
   color: var(--text-muted);
   font-weight: 400;
 }
+
+/* ================================================================
+   GOAL PROPOSAL CARD (cold-start flow)
+   ================================================================ */
+.goalProposalCard {
+  background: var(--elevated);
+  border: 1px solid var(--border);
+  border-left: 3px solid #7c6ef0;
+  border-radius: 12px;
+  padding: 14px 16px;
+  margin-top: 6px;
+  max-width: 520px;
+  animation: bannerSlide 0.2s ease;
+}
+
+.goalProposalEyebrow {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #7c6ef0;
+  margin-bottom: 6px;
+}
+
+.goalProposalText {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1.4;
+  margin-bottom: 6px;
+}
+
+.goalProposalHint {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin: 0 0 12px;
+}
+
+.goalProposalActions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}

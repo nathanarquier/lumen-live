@@ -5,6 +5,7 @@ Return ONLY a valid JSON object with exactly these fields (use null for any fiel
 
 {
   "goal": "what the user ultimately wants to achieve from their music (string or null)",
+  "goal_is_specific": "boolean or null — true if the goal has BOTH a clear direction (what outcome they want) AND a mechanism or context (how they plan to get there, or what specific area they are working in). Examples that ARE specific: 'earn £500/month from session work', 'build live performance income in Manchester', 'release and monetise original music on streaming'. Examples that are NOT specific: 'make more money from music', 'be more successful', 'get better at music'. Set to null when goal is null. Return as a JSON boolean (true/false), not a string",
   "career_stage": "one of: early / developing / established (string or null)",
   "primary_obstacle": "the main thing getting in their way right now (string or null)",
   "current_decision": "a specific decision they are currently weighing, if any (string or null)",
@@ -15,6 +16,7 @@ Rules:
 - Only populate fields where you have explicit evidence from the conversation
 - Do not infer, guess, or fill in from general assumptions
 - Return null for any field without clear evidence
+- goal_is_specific must be a JSON boolean (true or false) or null — never a string
 - Output valid JSON only, no other text`;
 
 module.exports = async function handler(req, res) {

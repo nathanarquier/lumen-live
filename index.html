@@ -233,6 +233,8 @@
     let dashboardRendering    = false;
     let loadGeneration        = 0;    // incremented by startNewConversation / loadConversationById to abort in-flight loads
     let lastDismissedMission  = null; // { title, description } — set when user dismisses or adds an offer; prevents re-render of the same offer
+    let lastRejectedGoal      = null; // goal text rejected by user — skip re-proposing the same goal
+    let goalProposalPending   = false; // true while a goal proposal card is visible — prevents duplicates
 
     // --- DOM ---
     const chatInput     = document.getElementById('chatInput');
@@ -453,6 +455,8 @@
       chatMessagesEl       = null;
       isSending            = false;
       lastDismissedMission = null; // new conversation — reset offer dedupe
+      lastRejectedGoal     = null;
+      goalProposalPending  = false;
 
       // Remove auth gate and image preview if showing
       document.getElementById('authGate')?.remove();
@@ -960,9 +964,9 @@
         const { profile } = await res.json();
         if (!profile) return;
 
-        // Keep only non-null, non-empty values
+        // Build storable updates — exclude goal_is_specific (frontend-only, not a DB column)
         const updates = Object.fromEntries(
-          Object.entries(profile).filter(([, v]) => v != null && v !== '')
+          Object.entries(profile).filter(([k, v]) => k !== 'goal_is_specific' && v != null && v !== '')
         );
 
         // Stage 1: goal is a confirmed anchor — never overwrite it from extraction once set
@@ -970,16 +974,32 @@
           delete updates.goal;
         }
 
+        // Stage 2: cold-start — never write goal silently; propose in-chat if specific enough
+        if (userProfile?.goal_status !== 'set' && 'goal' in updates) {
+          const proposedGoal = updates.goal;
+          delete updates.goal; // always prevent silent write during cold_start
+
+          const userMsgCount = messages.filter(m => m.role === 'user').length;
+          const shouldPropose =
+            profile.goal_is_specific === true &&
+            userMsgCount >= 3 &&
+            !goalProposalPending &&
+            proposedGoal !== lastRejectedGoal;
+
+          if (shouldPropose) {
+            goalProposalPending = true;
+            renderGoalProposalCard(proposedGoal);
+          }
+        }
+
         if (!Object.keys(updates).length) return;
 
         const prev = userProfile || {};
 
-        // Fire onboarding events
-        if (updates.goal && !prev.goal) {
-          logUserEvent('onboarding_goal_captured', { goal: updates.goal });
-        }
-        const fields   = ['goal', 'career_stage', 'primary_obstacle', 'current_decision'];
-        const hadAll   = fields.every(f => prev[f]);
+        // onboarding_completed fires when all non-goal fields are first populated
+        // (goal capture is tracked via confirmGoal instead)
+        const fields    = ['career_stage', 'primary_obstacle', 'current_decision'];
+        const hadAll    = fields.every(f => prev[f]);
         const hasAllNow = fields.every(f => updates[f] || prev[f]);
         if (hasAllNow && !hadAll) {
           logUserEvent('onboarding_completed', {});
@@ -993,6 +1013,30 @@
 
       } catch (err) {
         console.warn('extractAndUpsertProfile error:', err.message);
+      }
+    }
+
+    // Writes the confirmed goal to Supabase and locks the state machine to 'set'.
+    async function confirmGoal(goal) {
+      goalProposalPending = false;
+      const { error } = await supabaseClient
+        .from('user_profile')
+        .upsert([{ user_id: currentUser.id, goal, goal_status: 'set' }], { onConflict: 'user_id' });
+
+      if (error) {
+        console.error('[DIAG] confirmGoal upsert failed:', error.message, '| code:', error.code, '| details:', error.details, '| hint:', error.hint);
+        showToast('Could not save your goal — try again.');
+        return;
+      }
+
+      userProfile = { ...userProfile, goal, goal_status: 'set' };
+      logUserEvent('goal_confirmed', { goal });
+
+      // Live-update the dashboard goal block if the dashboard panel is currently visible
+      const goalEl = dashboardView.querySelector('.dashGoalText, .dashGoalTextEmpty');
+      if (goalEl) {
+        goalEl.className = 'dashGoalText';
+        goalEl.textContent = goal;
       }
     }
 
@@ -1404,6 +1448,39 @@
       });
       card.querySelector('.missionOfferDismiss').addEventListener('click', () => {
         lastDismissedMission = { title: suggestion.title, description: suggestion.description };
+        card.remove();
+      });
+    }
+
+    // ================================================================
+    //  GOAL PROPOSAL CARD (cold-start flow)
+    // ================================================================
+    function renderGoalProposalCard(proposedGoal) {
+      if (!chatMessagesEl) return;
+
+      const card = document.createElement('div');
+      card.className = 'goalProposalCard';
+      card.innerHTML = `
+        <div class="goalProposalEyebrow">Goal</div>
+        <div class="goalProposalText">${escapeHtml(proposedGoal)}</div>
+        <p class="goalProposalHint">Sounds like that's your focus — want me to set it as your goal?</p>
+        <div class="goalProposalActions">
+          <button class="primary small goalProposalConfirm" type="button">Yes, set it</button>
+          <button class="secondary small goalProposalReject" type="button">Not quite</button>
+        </div>`;
+
+      chatMessagesEl.appendChild(card);
+      scrollToBottom();
+
+      card.querySelector('.goalProposalConfirm').addEventListener('click', async () => {
+        card.remove();
+        await confirmGoal(proposedGoal);
+        showToast('Goal set.');
+      });
+
+      card.querySelector('.goalProposalReject').addEventListener('click', () => {
+        lastRejectedGoal    = proposedGoal;
+        goalProposalPending = false;
         card.remove();
       });
     }
