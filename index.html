@@ -436,8 +436,29 @@
         accountBtn.innerHTML = iconSvg + ' Log out';
         accountBtn.onclick = async () => {
           await supabaseClient.auth.signOut();
-          currentUser  = null;
-          userProfile  = null;
+          currentUser = null;
+          userProfile = null;
+
+          // Cancel any pending conversation delete
+          clearTimeout(pendingDelete?.timeoutId);
+          pendingDelete = null;
+
+          // Clear sidebar back to empty placeholder
+          document.querySelector('.sidebarConvList').innerHTML =
+            '<div class="sidebarConvEmpty">Your conversations will appear here</div>';
+          document.getElementById('sidebarUndoBanner')?.remove();
+
+          // Reset chat panel to welcome screen (resets messages, chatMessagesEl, renders welcome)
+          startNewConversation();
+          conversationId = null;
+
+          // Re-lock dashboard
+          dashViewBtn.classList.add('locked');
+          dashViewBtn.setAttribute('aria-disabled', 'true');
+          dashViewBtn.title = 'Sign in to access your dashboard';
+          dashViewBtn.innerHTML = `<svg width="11" height="13" viewBox="0 0 11 13" fill="none" aria-hidden="true"><rect x="1" y="5.5" width="9" height="6.5" rx="1.6" stroke="currentColor" stroke-width="1.6"/><path d="M3.5 5.5V4a2 2 0 0 1 4 0v1.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg> Dashboard`;
+          dashViewBtn.onclick = null;
+
           updateAccountBtn();
         };
       } else {
