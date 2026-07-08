@@ -1767,7 +1767,27 @@
       const timeoutId = setTimeout(() => flushPendingDelete(), 5000);
       pendingDelete = { convId, wasActive, timeoutId };
 
-      showToastWithAction('Conversation deleted', 'Undo', async () => {
+      showSidebarUndoBanner(convId, wasActive);
+    }
+
+    function showSidebarUndoBanner(convId, wasActive) {
+      document.getElementById('sidebarUndoBanner')?.remove();
+
+      const banner = document.createElement('div');
+      banner.id = 'sidebarUndoBanner';
+      banner.className = 'sidebarUndoBanner';
+      banner.innerHTML = `
+        <span class="sidebarUndoMsg">Conversation deleted</span>
+        <button class="sidebarUndoBtn" type="button">Undo</button>`;
+
+      const footer = document.querySelector('.sidebarFooter');
+      footer?.parentNode.insertBefore(banner, footer);
+
+      const dismissTimer = setTimeout(() => banner.remove(), 5000);
+
+      banner.querySelector('.sidebarUndoBtn').addEventListener('click', async () => {
+        clearTimeout(dismissTimer);
+        banner.remove();
         if (pendingDelete?.convId === convId) {
           clearTimeout(pendingDelete.timeoutId);
           pendingDelete = null;
