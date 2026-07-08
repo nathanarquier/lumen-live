@@ -2885,7 +2885,7 @@ textarea.chatInputField {
   transform: translateX(-50%) translateY(6px);
   background: rgba(18, 18, 18, 0.92);
   color: #fff;
-  padding: 9px 18px;
+  padding: 9px 16px;
   border-radius: 100px;
   font-size: 13px;
   font-weight: 500;
@@ -2893,13 +2893,45 @@ textarea.chatInputField {
   transition: opacity 0.2s ease, transform 0.2s ease;
   pointer-events: none;
   z-index: 9999;
-  white-space: nowrap;
   backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  white-space: nowrap;
 }
 
 .lumenToast.visible {
   opacity: 1;
   transform: translateX(-50%) translateY(0);
+  pointer-events: auto;
+}
+
+.toastMsg {
+  white-space: nowrap;
+}
+
+.toastAction {
+  background: transparent;
+  border: 1px solid rgba(255,255,255,0.3);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: inherit;
+  padding: 3px 10px;
+  border-radius: 50px;
+  cursor: pointer;
+  white-space: nowrap;
+  letter-spacing: 0.02em;
+  transition: background 0.15s ease;
+  flex-shrink: 0;
+  box-shadow: none;
+  transform: none !important;
+}
+
+.toastAction:hover {
+  background: rgba(255,255,255,0.15);
+  box-shadow: none;
+  transform: none !important;
 }
 
 /* ================================================================
@@ -2934,26 +2966,19 @@ textarea.chatInputField {
 /* ================================================================
    SIDEBAR CONVERSATION LIST
    ================================================================ */
+/* Wrapper div — holds content button + delete button in a row */
 .sidebarConvItem {
-  width: 100%;
-  text-align: left;
+  display: flex;
+  align-items: center;
   background: transparent;
   border: 1px solid transparent;
   border-radius: var(--radius-md);
-  padding: 10px 12px;
-  cursor: pointer;
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  box-shadow: none;
   transition: background 0.15s ease, border-color 0.15s ease;
+  overflow: hidden;
 }
 
 .sidebarConvItem:hover {
   background: rgba(20,20,20,0.05);
-  transform: none;
-  box-shadow: none;
-  border-color: transparent;
 }
 
 .sidebarConvItem.active {
@@ -2963,7 +2988,60 @@ textarea.chatInputField {
 
 .sidebarConvItem.active:hover {
   background: rgba(77,184,174,0.14);
-  transform: none;
+}
+
+/* The clickable load-conversation area */
+.sidebarConvContent {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  padding: 10px 12px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  box-shadow: none;
+  transition: none;
+  transform: none !important;
+}
+
+.sidebarConvContent:hover {
+  background: transparent;
+  box-shadow: none;
+  transform: none !important;
+}
+
+/* Trash button — hidden at rest, shown on item hover */
+.sidebarConvDelete {
+  flex-shrink: 0;
+  padding: 6px 8px;
+  margin-right: 4px;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s ease, color 0.15s ease, background 0.15s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: none;
+  transform: none !important;
+}
+
+.sidebarConvItem:hover .sidebarConvDelete,
+.sidebarConvItem:focus-within .sidebarConvDelete {
+  opacity: 1;
+}
+
+.sidebarConvDelete:hover {
+  color: var(--text-primary);
+  background: rgba(255,255,255,0.06);
+  transform: none !important;
   box-shadow: none;
 }
 

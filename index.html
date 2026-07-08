@@ -237,6 +237,7 @@
     let lastRejectedGoal      = null; // goal text rejected by user — skip re-proposing the same goal
     let goalProposalPending   = false; // true while a goal proposal card is visible — prevents duplicates
     let driftProposalShown    = false; // prevents showing the drift proposal more than once per session
+    let pendingDelete         = null; // { convId, wasActive, timeoutId } — one pending delete at a time
 
     // --- DOM ---
     const chatInput     = document.getElementById('chatInput');
@@ -845,6 +846,20 @@
       }
     }
 
+    const TRASH_SVG = `<svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M1.5 3.5h11M4.5 3.5V2a.5.5 0 0 1 .5-.5h4a.5.5 0 0 1 .5.5v1.5M5 6.5v4M9 6.5v4M2.5 3.5 3.25 12a.5.5 0 0 0 .5.5h6.5a.5.5 0 0 0 .5-.5L11.5 3.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+
+    function wireSidebarItem(item) {
+      const convId = item.dataset.convId;
+      item.querySelector('.sidebarConvContent').addEventListener('click', () => {
+        loadConversationById(convId);
+        closeSidebar();
+      });
+      item.querySelector('.sidebarConvDelete').addEventListener('click', e => {
+        e.stopPropagation();
+        deleteConversation(convId);
+      });
+    }
+
     function renderSidebarConversations(conversations) {
       const list = document.querySelector('.sidebarConvList');
       if (!list) return;
@@ -859,18 +874,16 @@
         const preview  = truncateText(firstUserMsg?.content || 'Conversation', 42);
         const lastTime = conv.messages[conv.messages.length - 1].created_at;
         const isActive = conv.id === conversationId;
-        return `<button class="sidebarConvItem${isActive ? ' active' : ''}" data-conv-id="${conv.id}" type="button">
-          <span class="sidebarConvPreview">${escapeHtml(preview)}</span>
-          <span class="sidebarConvTime">${relativeTime(lastTime)}</span>
-        </button>`;
+        return `<div class="sidebarConvItem${isActive ? ' active' : ''}" data-conv-id="${conv.id}">
+          <button class="sidebarConvContent" type="button">
+            <span class="sidebarConvPreview">${escapeHtml(preview)}</span>
+            <span class="sidebarConvTime">${relativeTime(lastTime)}</span>
+          </button>
+          <button class="sidebarConvDelete" type="button" aria-label="Delete conversation">${TRASH_SVG}</button>
+        </div>`;
       }).join('');
 
-      list.querySelectorAll('.sidebarConvItem[data-conv-id]').forEach(btn => {
-        btn.addEventListener('click', () => {
-          loadConversationById(btn.dataset.convId);
-          closeSidebar();
-        });
-      });
+      list.querySelectorAll('.sidebarConvItem[data-conv-id]').forEach(wireSidebarItem);
     }
 
     // Prepend a new sidebar entry for the just-started conversation (called after first save).
@@ -880,15 +893,17 @@
       list.querySelector('.sidebarConvEmpty')?.remove();
       list.querySelectorAll('.sidebarConvItem').forEach(i => i.classList.remove('active'));
 
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = 'sidebarConvItem active';
-      btn.dataset.convId = convId;
-      btn.innerHTML = `
-        <span class="sidebarConvPreview">${escapeHtml(truncateText(previewText, 42))}</span>
-        <span class="sidebarConvTime">Just now</span>`;
-      list.insertBefore(btn, list.firstChild);
-      btn.addEventListener('click', () => { loadConversationById(btn.dataset.convId); closeSidebar(); });
+      const item = document.createElement('div');
+      item.className  = 'sidebarConvItem active';
+      item.dataset.convId = convId;
+      item.innerHTML = `
+        <button class="sidebarConvContent" type="button">
+          <span class="sidebarConvPreview">${escapeHtml(truncateText(previewText, 42))}</span>
+          <span class="sidebarConvTime">Just now</span>
+        </button>
+        <button class="sidebarConvDelete" type="button" aria-label="Delete conversation">${TRASH_SVG}</button>`;
+      list.insertBefore(item, list.firstChild);
+      wireSidebarItem(item);
     }
 
     // Update the active class across all sidebar items.
@@ -1711,23 +1726,96 @@
       logUserEvent('mission_added_from_chat', { title });
     }
 
+    // ================================================================
+    //  DELETE CONVERSATION (undo-toast pattern)
+    // ================================================================
+    async function flushPendingDelete() {
+      if (!pendingDelete) return;
+      const { convId, timeoutId } = pendingDelete;
+      clearTimeout(timeoutId);
+      pendingDelete = null;
+
+      const { error } = await supabaseClient
+        .from('conversations')
+        .delete()
+        .eq('conversation_id', convId)
+        .eq('user_id', currentUser.id);
+
+      if (error) {
+        console.error('[DIAG] conversation delete failed:', error.message, '| code:', error.code, '| details:', error.details, '| hint:', error.hint);
+        showToast("Couldn't delete — try again");
+        await loadSidebarConversations();
+        return;
+      }
+
+      logUserEvent('conversation_deleted', { conversation_id: convId });
+    }
+
+    async function deleteConversation(convId) {
+      // Flush any existing pending delete before starting a new one
+      if (pendingDelete) await flushPendingDelete();
+
+      const wasActive = convId === conversationId;
+
+      // Remove from sidebar DOM immediately
+      document.querySelector(`.sidebarConvItem[data-conv-id="${convId}"]`)?.remove();
+
+      // Reset chat panel if this was the open conversation
+      if (wasActive) startNewConversation();
+
+      // Schedule actual Supabase delete after the undo window
+      const timeoutId = setTimeout(() => flushPendingDelete(), 5000);
+      pendingDelete = { convId, wasActive, timeoutId };
+
+      showToastWithAction('Conversation deleted', 'Undo', async () => {
+        if (pendingDelete?.convId === convId) {
+          clearTimeout(pendingDelete.timeoutId);
+          pendingDelete = null;
+        }
+        await loadSidebarConversations();
+        if (wasActive) await loadConversationById(convId);
+      });
+    }
+
+    // ================================================================
+    //  TOAST
+    // ================================================================
     function showToast(message) {
+      showToastWithAction(message, null, null, 3000);
+    }
+
+    function showToastWithAction(message, actionLabel, onAction, duration = 5000) {
       const existing = document.getElementById('lumenToast');
       if (existing) existing.remove();
 
       const toast = document.createElement('div');
       toast.id = 'lumenToast';
       toast.className = 'lumenToast';
-      toast.textContent = message;
-      document.body.appendChild(toast);
 
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => toast.classList.add('visible'));
-      });
-      setTimeout(() => {
+      const msgSpan = document.createElement('span');
+      msgSpan.className = 'toastMsg';
+      msgSpan.textContent = message;
+      toast.appendChild(msgSpan);
+
+      let dismissTimer;
+      const dismiss = () => {
+        clearTimeout(dismissTimer);
         toast.classList.remove('visible');
         setTimeout(() => toast.remove(), 300);
-      }, 3000);
+      };
+
+      if (actionLabel && onAction) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'toastAction';
+        btn.textContent = actionLabel;
+        btn.addEventListener('click', () => { dismiss(); onAction(); });
+        toast.appendChild(btn);
+      }
+
+      document.body.appendChild(toast);
+      requestAnimationFrame(() => requestAnimationFrame(() => toast.classList.add('visible')));
+      dismissTimer = setTimeout(dismiss, duration);
     }
 
     // ================================================================
