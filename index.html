@@ -451,6 +451,7 @@
           // Reset chat panel to welcome screen (resets messages, chatMessagesEl, renders welcome)
           startNewConversation();
           conversationId = null;
+          closeSidebar();
 
           // Re-lock dashboard
           dashViewBtn.classList.add('locked');
