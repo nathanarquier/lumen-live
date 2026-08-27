@@ -60,7 +60,7 @@ module.exports = async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const { messages, userProfile } = req.body || {};
+  const { messages, userProfile, goalNarrowingContext } = req.body || {};
 
   if (!messages || !Array.isArray(messages) || messages.length === 0) {
     return res.status(400).json({ error: 'messages array required' });
@@ -92,6 +92,23 @@ module.exports = async function handler(req, res) {
         systemBlocks.push({
           type: 'text',
           text: `Here is what you already know about this user: ${profileLines.join('. ')}.`
+        });
+      }
+    }
+
+    // Goal-narrowing nudge — the client throttles how often this is sent (roughly
+    // one nudge per few exchanges), so when it's present, act on it this turn.
+    if (goalNarrowingContext && goalNarrowingContext.value) {
+      const v = String(goalNarrowingContext.value);
+      if (goalNarrowingContext.status === 'fuzzy') {
+        systemBlocks.push({
+          type: 'text',
+          text: `The user's direction so far is "${v}", but it lacks either a concrete outcome or a mechanism/context — it is not yet a specific goal. Before giving any generic advice, ask exactly ONE sharpening question that moves this toward specificity (a concrete outcome, or how/where they'd pursue it). Ask only that one question and do not repeat a sharpening question you have already asked earlier in this conversation.`
+        });
+      } else if (goalNarrowingContext.status === 'rejected') {
+        systemBlocks.push({
+          type: 'text',
+          text: `The user was offered "${v}" as their goal and rejected it. Do not re-propose that same framing or wording. Instead, probe for what is actually driving them — the underlying motivation or the outcome they truly care about — and let a different goal emerge from that.`
         });
       }
     }

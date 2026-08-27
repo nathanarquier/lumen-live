@@ -218,7 +218,6 @@
     // --- Config ---
     const API_CHAT       = '/api/chat';
     const API_EXTRACT    = '/api/extract-profile';
-    const API_MISSIONS   = '/api/generate-missions';
     const API_DRIFT      = '/api/drift-check';
 
     // --- Session state ---
@@ -226,8 +225,12 @@
     let conversationId    = null; // UUID for the active conversation
     let currentUser       = null;
     let userProfile       = null; // {goal, career_stage, primary_obstacle, current_decision, profile_code}
-    let userMessageCount  = 0;    // unauthenticated counter for soft gate
+    let userMessageCount  = 0;    // per-conversation unauthenticated counter for the message-3 soft gate
     let authGateDismissed = false;
+    let anonProfile          = {};   // in-memory profile for pre-signup users — backfilled to user_profile on signup
+    let totalAnonMessageCount = 0;   // anon user messages across the whole browser session — survives startNewConversation; reset only on logout/reload
+    let goallessGateShown     = false; // message-10 account-creation fallback has been shown this session
+    let goallessGateDismissed = false; // user dismissed the message-10 fallback
     let isSending         = false;
     let chatMessagesEl    = null; // reference to .chatMessages wrapper
     let pendingImage      = null; // {dataUrl, mediaType, base64}
@@ -236,6 +239,8 @@
     let lastDismissedMission  = null; // { title, description } — set when user dismisses or adds an offer; prevents re-render of the same offer
     let lastRejectedGoal      = null; // goal text rejected by user — skip re-proposing the same goal
     let goalProposalPending   = false; // true while a goal proposal card is visible — prevents duplicates
+    let goalNarrowingContext  = null;  // { status: 'fuzzy' | 'rejected', value } — steers /api/chat toward sharpening a vague or rejected goal; cleared on goal confirm
+    let lastNarrowingNudgeTurn = -Infinity; // user-message turn index of the last narrowing nudge sent — throttles it to ~1 per 3 turns
     let driftProposalShown    = false; // prevents showing the drift proposal more than once per session
     let pendingDelete         = null; // { convId, wasActive, timeoutId } — one pending delete at a time
 
@@ -296,7 +301,7 @@
       } catch { return null; }
     }
 
-    // Mirrors logUserEvent from app.js — fires only when authenticated
+    // Fires only when authenticated
     async function logUserEvent(eventType, metadata = {}) {
       if (!currentUser) return;
       try {
@@ -374,6 +379,22 @@
               await saveMessageToSupabase(msg.role, msg.content);
             }
           }
+          // Backfill anon profile state (career_stage, obstacle, confirmed goal, …) captured before signup
+          if (currentUser) {
+            const backfill = Object.fromEntries(
+              Object.entries(anonProfile).filter(([, v]) => v != null && v !== '')
+            );
+            if (Object.keys(backfill).length) {
+              await supabaseClient
+                .from('user_profile')
+                .upsert([{ user_id: currentUser.id, ...backfill }], { onConflict: 'user_id' });
+            }
+            await loadUserProfile();
+            anonProfile = {};
+          }
+          // Account now exists — the "make an account" banners no longer apply
+          document.getElementById('goallessGate')?.remove();
+          document.getElementById('authGate')?.remove();
           await loadSidebarConversations();
           unlockDashboard();
           updateAccountBtn();
@@ -393,6 +414,12 @@
     async function handleSuccessfulLogin() {
       currentUser = await getCurrentUser();
       await loadUserProfile();
+      // Logging into an existing account — the server profile is authoritative.
+      // Drop anon-only carry-over so it can't leak into an established profile.
+      anonProfile            = {};
+      goalNarrowingContext   = null;
+      lastNarrowingNudgeTurn = -Infinity;
+      document.getElementById('goallessGate')?.remove();
       // Only load saved conversation if the chat is currently empty
       if (messages.length === 0) {
         await loadLatestConversation();
@@ -439,6 +466,14 @@
           currentUser = null;
           userProfile = null;
 
+          // Reset anon session state — counters and gates start fresh after logout
+          anonProfile            = {};
+          totalAnonMessageCount  = 0;
+          goallessGateShown      = false;
+          goallessGateDismissed  = false;
+          goalNarrowingContext   = null;
+          lastNarrowingNudgeTurn = -Infinity;
+
           // Cancel any pending conversation delete
           clearTimeout(pendingDelete?.timeoutId);
           pendingDelete = null;
@@ -484,8 +519,11 @@
       goalProposalPending  = false;
       driftProposalShown   = false;
 
-      // Remove auth gate, drift proposal, and image preview if showing
+      // Remove auth gate, goalless gate, drift proposal, and image preview if showing.
+      // Note: totalAnonMessageCount / goallessGateShown are intentionally NOT reset here —
+      // the message-10 fallback is a once-per-session ask that spans conversations.
       document.getElementById('authGate')?.remove();
+      document.getElementById('goallessGate')?.remove();
       document.getElementById('driftProposalBanner')?.remove();
       clearImagePreview();
 
@@ -653,7 +691,7 @@
     //  AUTH GATE (soft, non-blocking)
     // ================================================================
     function showAuthGate() {
-      if (document.getElementById('authGate') || authGateDismissed) return;
+      if (document.getElementById('authGate') || document.getElementById('goallessGate') || authGateDismissed) return;
 
       const banner = document.createElement('div');
       banner.id = 'authGate';
@@ -683,6 +721,56 @@
       document.getElementById('authGate')?.remove();
       authGateDismissed = true;
       logUserEvent('auth_gate_dismissed', {});
+    }
+
+    // ================================================================
+    //  GOALLESS-GOAL GATE (message-10 account-creation fallback)
+    //  Shown once per browser session to an anon user who has sent 10
+    //  messages without ever landing a goal. Reuses the auth-gate banner
+    //  pattern but reads as a different ask ("let's not lose this").
+    //  Returns true only when it actually renders — callers use that to
+    //  suppress the generic message-3 gate on the same message.
+    // ================================================================
+    function maybeShowGoallessGate() {
+      if (currentUser) return false;
+      if (goallessGateShown || goallessGateDismissed) return false;
+      if (totalAnonMessageCount < 10) return false;
+      // No goal in flight or locked in — a rejected past proposal does NOT suppress this;
+      // they're still a goalless user at message 10, which is exactly the target.
+      if (goalProposalPending) return false;
+      if ((userProfile ?? anonProfile)?.goal_status === 'set') return false;
+      // Never stack on top of the generic gate or a visible goal proposal card
+      if (document.getElementById('authGate')) return false;
+      if (document.getElementById('goallessGate')) return false;
+
+      const banner = document.createElement('div');
+      banner.id = 'goallessGate';
+      banner.className = 'authGateBanner';
+      banner.innerHTML = `
+        <span class="authGateText">You've been thinking this through for a while now. Make an account so none of it resets when you close the tab.</span>
+        <div class="authGateActions">
+          <button class="primary small" type="button" id="goallessGateSignupBtn">Create account</button>
+          <button class="chatInputAction" type="button" id="goallessGateDismissBtn" aria-label="Dismiss">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+              <path d="M2 2l10 10M12 2L2 12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            </svg>
+          </button>
+        </div>`;
+
+      chatInputBar.parentNode.insertBefore(banner, chatInputBar);
+
+      document.getElementById('goallessGateSignupBtn').addEventListener('click', () => {
+        openAuthModal('signup');
+      });
+      document.getElementById('goallessGateDismissBtn').addEventListener('click', () => {
+        document.getElementById('goallessGate')?.remove();
+        goallessGateDismissed = true;
+        logUserEvent('goalless_gate_dismissed', {});
+      });
+
+      goallessGateShown = true;
+      logUserEvent('goalless_gate_shown', {});
+      return true;
     }
 
     // ================================================================
@@ -996,9 +1084,13 @@
       } catch { /* table may not exist yet — silent */ }
     }
 
-    // Called as a background operation after each AI response
+    // Called as a background operation after each AI response — for every user,
+    // authenticated or not. Goal detection and the goal proposal card run
+    // unconditionally; only the Supabase writes (logUserEvent, user_profile
+    // upsert) are gated behind currentUser. Anon profile state lives in the
+    // in-memory anonProfile object and is backfilled to user_profile on signup.
     async function extractAndUpsertProfile() {
-      if (!currentUser || messages.length < 4) return;
+      if (messages.length < 4) return;
       try {
         const res = await fetch(API_EXTRACT, {
           method:  'POST',
@@ -1010,40 +1102,54 @@
         const { profile } = await res.json();
         if (!profile) return;
 
+        // Profile state — Supabase-backed when authed, in-memory when anon
+        const profileState = currentUser ? userProfile : anonProfile;
+
         // Build storable updates — exclude goal_is_specific (frontend-only, not a DB column)
         const updates = Object.fromEntries(
           Object.entries(profile).filter(([k, v]) => k !== 'goal_is_specific' && v != null && v !== '')
         );
 
         // Stage 1: goal is a confirmed anchor — never overwrite it from extraction once set
-        if (userProfile?.goal_status === 'set') {
+        if (profileState?.goal_status === 'set') {
           delete updates.goal;
         }
 
-        // Stage 2: cold-start — never write goal silently; propose in-chat if specific enough
-        if (userProfile?.goal_status !== 'set' && 'goal' in updates) {
+        // Stage 2: cold-start — never write goal silently. If it's specific enough,
+        // propose it in-chat. If it's fuzzy, don't drop it — hand it to /api/chat as
+        // narrowing context so the model sharpens it instead of giving generic advice.
+        if (profileState?.goal_status !== 'set' && 'goal' in updates) {
           const proposedGoal = updates.goal;
           delete updates.goal; // always prevent silent write during cold_start
 
           const userMsgCount = messages.filter(m => m.role === 'user').length;
-          const shouldPropose =
-            profile.goal_is_specific === true &&
-            userMsgCount >= 3 &&
-            !goalProposalPending &&
-            proposedGoal !== lastRejectedGoal;
 
-          if (shouldPropose) {
-            goalProposalPending = true;
-            renderGoalProposalCard(proposedGoal);
+          if (profile.goal_is_specific === true) {
+            const shouldPropose =
+              userMsgCount >= 3 &&
+              !goalProposalPending &&
+              proposedGoal !== lastRejectedGoal;
+
+            if (shouldPropose) {
+              goalProposalPending = true;
+              renderGoalProposalCard(proposedGoal);
+            }
+          } else {
+            // Fuzzy direction — record it for the chat nudge. Don't clobber a stronger
+            // 'rejected' signal; a fresh fuzzy context fires its first nudge immediately.
+            if (!goalNarrowingContext || goalNarrowingContext.status === 'fuzzy') {
+              if (!goalNarrowingContext) lastNarrowingNudgeTurn = -Infinity;
+              goalNarrowingContext = { status: 'fuzzy', value: proposedGoal };
+            }
           }
         }
 
         if (!Object.keys(updates).length) return;
 
-        const prev = userProfile || {};
+        const prev = profileState || {};
 
         // onboarding_completed fires when all non-goal fields are first populated
-        // (goal capture is tracked via confirmGoal instead)
+        // (goal capture is tracked via confirmGoal instead). No-op while anonymous.
         const fields    = ['career_stage', 'primary_obstacle', 'current_decision'];
         const hadAll    = fields.every(f => prev[f]);
         const hasAllNow = fields.every(f => updates[f] || prev[f]);
@@ -1051,11 +1157,14 @@
           logUserEvent('onboarding_completed', {});
         }
 
-        userProfile = { ...prev, ...updates };
-
-        await supabaseClient
-          .from('user_profile')
-          .upsert([{ user_id: currentUser.id, ...updates }], { onConflict: 'user_id' });
+        if (currentUser) {
+          userProfile = { ...prev, ...updates };
+          await supabaseClient
+            .from('user_profile')
+            .upsert([{ user_id: currentUser.id, ...updates }], { onConflict: 'user_id' });
+        } else {
+          anonProfile = { ...prev, ...updates };
+        }
 
       } catch (err) {
         console.warn('extractAndUpsertProfile error:', err.message);
@@ -1063,20 +1172,28 @@
     }
 
     // Writes the confirmed goal to Supabase and locks the state machine to 'set'.
+    // For anon users the goal is held in anonProfile and backfilled on signup.
     async function confirmGoal(goal) {
-      goalProposalPending = false;
-      const { error } = await supabaseClient
-        .from('user_profile')
-        .upsert([{ user_id: currentUser.id, goal, goal_status: 'set' }], { onConflict: 'user_id' });
+      goalProposalPending  = false;
+      goalNarrowingContext = null; // goal locked in — stop nudging toward specificity
 
-      if (error) {
-        console.error('[DIAG] confirmGoal upsert failed:', error.message, '| code:', error.code, '| details:', error.details, '| hint:', error.hint);
-        showToast('Could not save your goal — try again.');
-        return;
+      if (currentUser) {
+        const { error } = await supabaseClient
+          .from('user_profile')
+          .upsert([{ user_id: currentUser.id, goal, goal_status: 'set' }], { onConflict: 'user_id' });
+
+        if (error) {
+          console.error('[DIAG] confirmGoal upsert failed:', error.message, '| code:', error.code, '| details:', error.details, '| hint:', error.hint);
+          showToast('Could not save your goal — try again.');
+          return;
+        }
+
+        userProfile = { ...userProfile, goal, goal_status: 'set' };
+      } else {
+        anonProfile = { ...anonProfile, goal, goal_status: 'set' };
       }
 
-      userProfile = { ...userProfile, goal, goal_status: 'set' };
-      logUserEvent('goal_confirmed', { goal });
+      logUserEvent('goal_confirmed', { goal }); // no-op while anonymous
 
       // Live-update the dashboard goal block if the dashboard panel is currently visible
       const goalEl = dashboardView.querySelector('.dashGoalText, .dashGoalTextEmpty');
@@ -1238,6 +1355,23 @@
       logUserEvent('goal_drift_declined', {});
     }
 
+    // Returns goalNarrowingContext only when it's due to be sent — throttled to
+    // roughly one nudge per 3 user-message turns so it doesn't dominate the chat
+    // (same spirit as drift-check's cooldown). Returns null when off-cooldown work
+    // hasn't elapsed, or when there's no narrowing context at all.
+    function narrowingContextForRequest() {
+      if (!goalNarrowingContext) return null;
+      // A confirmed goal supersedes any narrowing nudge
+      if ((currentUser ? userProfile : anonProfile)?.goal_status === 'set') {
+        goalNarrowingContext = null;
+        return null;
+      }
+      const turn = messages.filter(m => m.role === 'user').length;
+      if (turn - lastNarrowingNudgeTurn < 3) return null;
+      lastNarrowingNudgeTurn = turn;
+      return goalNarrowingContext;
+    }
+
     // ================================================================
     //  CORE: SEND MESSAGE
     // ================================================================
@@ -1292,7 +1426,12 @@
         if (isFirst) prependSidebarConversation(conversationId, content || '[Image]');
       } else {
         userMessageCount++;
-        if (userMessageCount === 3 && !authGateDismissed) showAuthGate();
+        totalAnonMessageCount++;
+        // The message-10 goalless fallback takes priority over the generic
+        // message-3 gate — only run the message-3 gate if it didn't render.
+        if (!maybeShowGoallessGate() && userMessageCount === 3 && !authGateDismissed) {
+          showAuthGate();
+        }
       }
 
       showTypingIndicator();
@@ -1301,7 +1440,11 @@
         const res = await fetch(API_CHAT, {
           method:  'POST',
           headers: { 'Content-Type': 'application/json' },
-          body:    JSON.stringify({ messages, userProfile })
+          body:    JSON.stringify({
+            messages,
+            userProfile: currentUser ? userProfile : anonProfile,
+            goalNarrowingContext: narrowingContextForRequest()
+          })
         });
 
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -1312,14 +1455,15 @@
         messages.push({ role: 'assistant', content: reply });
 
         if (offerMission && missionSuggestion && !missionAlreadyDismissed(missionSuggestion)) {
-          renderMissionOfferCard(missionSuggestion);
+          await renderMissionOfferCard(missionSuggestion);
         }
 
         if (currentUser) {
           await saveMessageToSupabase('assistant', reply);
           maybeCompressHistory().catch(console.warn);
-          extractAndUpsertProfile().catch(console.warn);
         }
+        // Goal extraction runs for everyone — anon state is held in anonProfile
+        extractAndUpsertProfile().catch(console.warn);
 
       } catch (err) {
         console.error('sendMessage error:', err);
@@ -1405,7 +1549,7 @@
             <div class="${goalText ? 'dashGoalText' : 'dashGoalTextEmpty'}">${goalText ? escapeHtml(goalText) : 'Keep chatting with Lumen to set your goal.'}</div>
           </div>
           <div class="dashMissionsBlock" id="dashMissionsBlock">
-            <div class="dashSectionLabel">This week's missions</div>
+            <div class="dashSectionLabel">Your missions</div>
             <div class="dashLoading">Loading your missions…</div>
           </div>
         </div>`;
@@ -1416,121 +1560,27 @@
       const hasProfile = !!(userProfile?.goal || userProfile?.career_stage || userProfile?.primary_obstacle);
       if (!hasProfile) {
         document.getElementById('dashMissionsBlock').innerHTML = `
-          <div class="dashSectionLabel">This week's missions</div>
+          <div class="dashSectionLabel">Your missions</div>
           <p class="dashEmptyState">Keep chatting with Lumen so we can build your missions.</p>`;
         dashboardRendering = false;
         return;
       }
 
       try {
-        const weekStart = getWeekStartDate();
-
-        // Check for existing cycle this week
-        const { data: cycle, error: cycleCheckErr } = await supabaseClient
-          .from('mission_cycles')
-          .select('id')
-          .eq('user_id', currentUser.id)
-          .eq('week_start', weekStart)
-          .maybeSingle();
-
-        if (cycleCheckErr) console.error('mission_cycles check:', cycleCheckErr.message, cycleCheckErr.code);
-
-        let cycleId = cycle?.id;
-
-        if (!cycleId) {
-          // Gather conversation context
-          let conversationSummary = null;
-          if (conversationId) {
-            const { data: summaryRow } = await supabaseClient
-              .from('conversations')
-              .select('content')
-              .eq('conversation_id', conversationId)
-              .eq('is_summary', true)
-              .maybeSingle();
-            conversationSummary = summaryRow?.content || null;
-          }
-
-          // Generate missions via AI
-          const genRes = await fetch(API_MISSIONS, {
-            method:  'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body:    JSON.stringify({ userProfile, conversationSummary })
-          });
-
-          if (!genRes.ok) {
-            console.error('generate-missions API error:', genRes.status);
-            throw new Error(`generate-missions returned ${genRes.status}`);
-          }
-
-          const { missions: generated } = await genRes.json();
-
-          if (!generated || !generated.length) {
-            document.getElementById('dashMissionsBlock').innerHTML = `
-              <div class="dashSectionLabel">This week's missions</div>
-              <p class="dashEmptyState">Keep chatting with Lumen so we can build your missions.</p>`;
-            dashboardRendering = false;
-            return;
-          }
-
-          // Insert mission_cycle — snapshot_id intentionally omitted (nullable)
-          const { data: newCycle, error: cycleInsertErr } = await supabaseClient
-            .from('mission_cycles')
-            .insert([{
-              user_id:        currentUser.id,
-              week_start:     weekStart,
-              profile_code:   userProfile?.profile_code || null,
-              strategy_key:   'ai_generated',
-              diagnosis_json: {}
-            }])
-            .select()
-            .single();
-
-          if (cycleInsertErr) {
-            console.error('mission_cycle insert:', cycleInsertErr.message, '| code:', cycleInsertErr.code, '| hint:', cycleInsertErr.hint);
-            document.getElementById('dashMissionsBlock').innerHTML = `
-              <div class="dashSectionLabel">This week's missions</div>
-              <p class="dashEmptyState">Couldn't save missions right now — check console for details.</p>`;
-            dashboardRendering = false;
-            return;
-          }
-
-          cycleId = newCycle.id;
-
-          const { error: missionsInsertErr } = await supabaseClient.from('missions').insert(
-            generated.map(m => ({
-              user_id:         currentUser.id,
-              cycle_id:        cycleId,
-              mission_bank_id: null,
-              mission_text:    m.title,
-              mission_why:     m.description,
-              category:        'general',
-              difficulty:      'medium',
-              completed:       false
-            }))
-          );
-
-          if (missionsInsertErr) {
-            console.error('[DIAG] renderDashboard missions INSERT FAILED — message:', missionsInsertErr.message, '| code:', missionsInsertErr.code, '| details:', missionsInsertErr.details, '| hint:', missionsInsertErr.hint);
-            console.error('[DIAG] renderDashboard missions payload sample:', generated[0]);
-          } else {
-            console.log('[DIAG] renderDashboard missions INSERT OK, count =', generated.length);
-          }
-
-          logUserEvent('mission_cycle_created', { week_start: weekStart, strategy_key: 'ai_generated' });
-        }
-
-        // Fetch missions for this cycle
+        // Fetch all missions for this user directly — missions are only ever
+        // created via addSuggestedMission(), so there's no per-week cycle to
+        // gate on and nothing to auto-generate here.
         const { data: missions, error: fetchErr } = await supabaseClient
           .from('missions')
           .select('*')
-          .eq('cycle_id', cycleId)
+          .eq('user_id', currentUser.id)
           .order('created_at', { ascending: true });
 
         if (fetchErr) console.error('missions fetch:', fetchErr.message, fetchErr.code);
 
         if (!missions || !missions.length) {
           document.getElementById('dashMissionsBlock').innerHTML = `
-            <div class="dashSectionLabel">This week's missions</div>
+            <div class="dashSectionLabel">Your missions</div>
             <p class="dashEmptyState">Keep chatting with Lumen so we can build your missions.</p>`;
         } else {
           renderMissionsBlock(missions);
@@ -1540,7 +1590,7 @@
         console.error('renderDashboard error:', err);
         const block = document.getElementById('dashMissionsBlock');
         if (block) block.innerHTML = `
-          <div class="dashSectionLabel">This week's missions</div>
+          <div class="dashSectionLabel">Your missions</div>
           <p class="dashEmptyState">Couldn't load missions — try refreshing.</p>`;
       }
 
@@ -1558,7 +1608,7 @@
       const sorted = [...missions].sort((a, b) => Number(a.completed) - Number(b.completed));
 
       container.innerHTML = `
-        <div class="dashSectionLabel">This week's missions</div>
+        <div class="dashSectionLabel">Your missions</div>
         <div class="dashMissionMeta">
           <span class="dashMissionCount">${completedCount}/${missions.length} complete</span>
           <div class="dashProgressTrack"><div class="dashProgressFill" style="width:${percent}%"></div></div>
@@ -1618,14 +1668,39 @@
     // ================================================================
     //  MISSION OFFER CARD (inline, from chat)
     // ================================================================
+    const MISSION_CAP = 5;
+
+    async function getUncompletedMissionCount() {
+      if (!currentUser) return 0;
+      const { count, error } = await supabaseClient
+        .from('missions')
+        .select('id', { count: 'exact', head: true })
+        .eq('user_id', currentUser.id)
+        .eq('completed', false);
+
+      if (error) {
+        console.error('getUncompletedMissionCount error:', error.message, error.code);
+        return 0;
+      }
+      return count || 0;
+    }
+
     function missionAlreadyDismissed(suggestion) {
       if (!lastDismissedMission) return false;
       return lastDismissedMission.title === suggestion.title &&
              lastDismissedMission.description === suggestion.description;
     }
 
-    function renderMissionOfferCard(suggestion) {
+    async function renderMissionOfferCard(suggestion) {
       if (!chatMessagesEl) return;
+
+      const uncompletedCount = await getUncompletedMissionCount();
+      if (uncompletedCount >= MISSION_CAP) {
+        renderMissionCapCard();
+        logUserEvent('mission_cap_reached', { uncompleted_count: uncompletedCount, source: 'chat_offer' });
+        return;
+      }
+
       const card = document.createElement('div');
       card.className = 'missionOfferCard';
       card.innerHTML = `
@@ -1647,6 +1722,25 @@
       card.querySelector('.missionOfferDismiss').addEventListener('click', () => {
         lastDismissedMission = { title: suggestion.title, description: suggestion.description };
         card.remove();
+      });
+    }
+
+    function renderMissionCapCard() {
+      if (!chatMessagesEl) return;
+      const card = document.createElement('div');
+      card.className = 'missionOfferCard missionCapCard';
+      card.innerHTML = `
+        <div class="missionOfferTitle">Your mission list is full</div>
+        <div class="missionOfferDesc">You've got ${MISSION_CAP} missions on the go. Complete one on your dashboard before adding another.</div>
+        <div class="missionOfferActions">
+          <button class="primary small missionCapGoToDashboard" type="button">Go to dashboard</button>
+        </div>`;
+
+      chatMessagesEl.appendChild(card);
+      scrollToBottom();
+
+      card.querySelector('.missionCapGoToDashboard').addEventListener('click', () => {
+        dashViewBtn.click();
       });
     }
 
@@ -1677,8 +1771,12 @@
       });
 
       card.querySelector('.goalProposalReject').addEventListener('click', () => {
-        lastRejectedGoal    = proposedGoal;
-        goalProposalPending = false;
+        lastRejectedGoal     = proposedGoal;
+        goalProposalPending  = false;
+        // Rejected goal isn't dropped — hand it to /api/chat so the model stops
+        // re-proposing this framing and probes for what's actually driving them.
+        goalNarrowingContext = { status: 'rejected', value: proposedGoal };
+        lastNarrowingNudgeTurn = -Infinity; // let the next message carry the nudge
         card.remove();
       });
     }
@@ -1721,6 +1819,16 @@
     async function addSuggestedMission(title, description) {
       console.log('[DIAG] addSuggestedMission: called, currentUser =', currentUser?.id, '| title =', title);
       if (!currentUser) { openAuthModal('signup'); return; }
+
+      // Re-check the cap immediately before insert — the UI-level check in
+      // renderMissionOfferCard can be stale by the time the user clicks "Add"
+      // (e.g. another tab/session added missions in between).
+      const uncompletedCount = await getUncompletedMissionCount();
+      if (uncompletedCount >= MISSION_CAP) {
+        showToast(`You already have ${MISSION_CAP} missions — complete one first.`);
+        logUserEvent('mission_cap_reached', { uncompleted_count: uncompletedCount, source: 'add_suggested_mission' });
+        return;
+      }
 
       const cycleId = await getOrCreateWeekCycle();
       console.log('[DIAG] addSuggestedMission: cycleId returned =', cycleId);
