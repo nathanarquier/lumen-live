@@ -2916,6 +2916,10 @@ textarea.chatInputField {
   align-items: center;
 }
 
+.missionCapCard {
+  border-left-color: var(--accent-peach);
+}
+
 /* ================================================================
    TOAST NOTIFICATION
    ================================================================ */
