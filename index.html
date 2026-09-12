@@ -224,6 +224,7 @@
     let messages          = [];   // {role, content|content[]}[] passed to Anthropic
     let conversationId    = null; // UUID for the active conversation
     let currentUser       = null;
+    let anonId            = null; // stable per-browser UUID (localStorage 'lumen_anon_id'); survives logout, only cleared explicitly
     let userProfile       = null; // {goal, career_stage, primary_obstacle, current_decision, profile_code}
     let userMessageCount  = 0;    // per-conversation unauthenticated counter for the message-3 soft gate
     let authGateDismissed = false;
@@ -301,12 +302,13 @@
       } catch { return null; }
     }
 
-    // Fires only when authenticated
+    // Fires for both authenticated and anonymous users — anon events are attributed
+    // via anon_id and claimed (user_id backfilled) on signup; see submitAuth().
     async function logUserEvent(eventType, metadata = {}) {
-      if (!currentUser) return;
       try {
         await supabaseClient.from('user_events').insert([{
-          user_id:    currentUser.id,
+          user_id:    currentUser ? currentUser.id : null,
+          anon_id:    currentUser ? null : anonId,
           event_type: eventType,
           metadata
         }]);
@@ -391,6 +393,20 @@
             }
             await loadUserProfile();
             anonProfile = {};
+          }
+          // Claim anon event history — attribute pre-signup user_events rows to this
+          // account. Runs regardless of whether anonProfile had any fields to backfill.
+          // Idempotent: .is('user_id', null) means a repeat run matches 0 rows.
+          if (currentUser) {
+            try {
+              await supabaseClient
+                .from('user_events')
+                .update({ user_id: currentUser.id })
+                .eq('anon_id', anonId)
+                .is('user_id', null);
+            } catch (err) {
+              console.warn('user_events anon claim error:', err.message);
+            }
           }
           // Account now exists — the "make an account" banners no longer apply
           document.getElementById('goallessGate')?.remove();
@@ -2003,7 +2019,19 @@
     // ================================================================
     //  BOOT
     // ================================================================
+    // Stable per-browser identity for anon event attribution — persists across
+    // tabs/sessions/logout; only ever replaced if 'lumen_anon_id' is explicitly cleared.
+    function getOrCreateAnonId() {
+      let id = localStorage.getItem('lumen_anon_id');
+      if (!id) {
+        id = crypto.randomUUID();
+        localStorage.setItem('lumen_anon_id', id);
+      }
+      return id;
+    }
+
     async function initChat() {
+      anonId = getOrCreateAnonId();
       currentUser = await getCurrentUser();
       console.log('[DIAG] initChat: currentUser =', currentUser?.id || null);
 
