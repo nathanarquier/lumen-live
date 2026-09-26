@@ -4,7 +4,7 @@
   --canvas: #2825EF;
   --canvas-deep: #1B1899;
   --card: #F4EBDC;
-  --elevated: #FFFFFF;
+  --elevated: var(--card);
   --subtle: rgba(244,235,220,0.14);
   --border: rgba(22,19,15,0.10);
 
@@ -234,7 +234,7 @@ button{
 }
 
 button:hover{
-  background: white;
+  background: var(--card);
   transform: translateY(-2px);
   box-shadow: 0 10px 22px rgba(0,0,0,0.08);
 }
@@ -1444,8 +1444,8 @@ input[type="number"]:focus,
   width: min(520px, 100%);
   padding: 28px;
   border-radius: var(--radius-xl);
-  background: linear-gradient(180deg, rgba(255,255,255,0.96), rgba(255,255,255,0.9));
-  border: 1px solid rgba(20,20,20,0.08);
+  background: var(--card);
+  border: none;
   box-shadow: 0 24px 70px rgba(20,20,20,0.22);
 }
 
@@ -2474,7 +2474,7 @@ button:active,
   padding: 10px 10px 10px 18px;
   border-radius: 999px;
   border: 2px solid var(--text-primary);
-  background: #fff;
+  background: var(--card);
   box-shadow: var(--shadow-soft);
   max-width: 720px;
   margin: 0 auto;
