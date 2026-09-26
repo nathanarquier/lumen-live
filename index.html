@@ -1912,8 +1912,10 @@
       const completedCount = missions.filter(m => m.completed).length;
       const percent = missions.length ? (completedCount / missions.length) * 100 : 0;
 
-      // Incomplete first, completed at bottom
-      const sorted = [...missions].sort((a, b) => Number(a.completed) - Number(b.completed));
+      // Completed missions are not shown — they disappear (with animation, see
+      // toggleMission) when checked, and stay out of the list after re-renders
+      // (e.g. after loading missions fresh, or after an unrelated re-render).
+      const visible = missions.filter(m => !m.completed);
 
       container.innerHTML = `
         <div class="dashSectionLabel">Your missions</div>
@@ -1921,40 +1923,41 @@
           <span class="dashMissionCount">${completedCount}/${missions.length} complete</span>
           <div class="dashProgressTrack"><div class="dashProgressFill" style="width:${percent}%"></div></div>
         </div>
-        ${sorted.map(m => `
-          <div class="dashMissionCard ${m.completed ? 'completed' : ''}" data-mission-id="${m.id}">
-            <div class="dashCheckbox ${m.completed ? 'checked' : ''}" data-check-id="${m.id}" role="checkbox" aria-checked="${m.completed}" tabindex="0">
-              ${m.completed ? `<svg width="10" height="8" viewBox="0 0 10 8" fill="none" aria-hidden="true"><path d="M1 4l3 3 5-6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>` : ''}
-            </div>
+        ${visible.length ? visible.map(m => `
+          <div class="dashMissionCard" data-mission-id="${m.id}">
+            <div class="dashCheckbox" data-check-id="${m.id}" role="checkbox" aria-checked="false" tabindex="0"></div>
             <div class="dashMissionBody">
-              <div class="dashMissionTitle ${m.completed ? 'struck' : ''}">${escapeHtml(m.mission_text)}</div>
-              ${m.mission_why && !m.completed ? `<div class="dashMissionWhy">${escapeHtml(m.mission_why)}</div>` : ''}
-              ${m.completed ? `<button class="dashUndoBtn" data-undo-id="${m.id}" type="button">Mark incomplete</button>` : ''}
+              <div class="dashMissionTitle">${escapeHtml(m.mission_text)}</div>
+              ${m.mission_why ? `<div class="dashMissionWhy">${escapeHtml(m.mission_why)}</div>` : ''}
             </div>
-          </div>`).join('')}`;
+          </div>`).join('') : `<p class="dashEmptyState">All caught up — nice work.</p>`}`;
 
-      // Checkbox → mark complete (only for incomplete missions)
+      // Checkbox → mark complete: pop the check immediately for feedback, then
+      // toggleMission animates the card out before removing it from the list.
       container.querySelectorAll('.dashCheckbox[data-check-id]').forEach(box => {
         box.addEventListener('click', e => {
           e.stopPropagation();
           const mission = missions.find(m => m.id === box.dataset.checkId);
           if (!mission || mission.completed) return;
+          box.classList.add('checked');
+          box.innerHTML = '<svg width="10" height="8" viewBox="0 0 10 8" fill="none" aria-hidden="true"><path d="M1 4l3 3 5-6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
           toggleMission(mission, true, missions);
-        });
-      });
-
-      // Undo button → mark incomplete
-      container.querySelectorAll('.dashUndoBtn[data-undo-id]').forEach(btn => {
-        btn.addEventListener('click', e => {
-          e.stopPropagation();
-          const mission = missions.find(m => m.id === btn.dataset.undoId);
-          if (!mission) return;
-          toggleMission(mission, false, missions);
         });
       });
     }
 
     async function toggleMission(mission, next, missions) {
+      if (next) {
+        // Let the checkbox pop be visible, then shrink/fade the card out
+        // before it's removed from the list on re-render.
+        const card = document.querySelector(`.dashMissionCard[data-mission-id="${mission.id}"]`);
+        if (card) {
+          await new Promise(r => setTimeout(r, 180));
+          card.classList.add('leaving');
+          await new Promise(r => setTimeout(r, 280));
+        }
+      }
+
       mission.completed    = next;
       mission.completed_at = next ? new Date().toISOString() : null;
 
@@ -1971,6 +1974,13 @@
 
       if (error) console.error('mission toggle error:', error.message, error.code);
       logUserEvent(next ? 'mission_completed' : 'mission_uncompleted', { mission_id: mission.id });
+
+      // Completed missions no longer stay visible with a permanent "mark
+      // incomplete" link — this toast is the only undo path, so give it a
+      // real window rather than the default 5s.
+      if (next) {
+        showToastWithAction('Mission complete', 'Undo', () => toggleMission(mission, false, missions), 6000);
+      }
     }
 
     // ================================================================
