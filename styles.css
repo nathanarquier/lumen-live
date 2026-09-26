@@ -16,6 +16,8 @@
 
   --primary: #4db8ae;
   --primary-hover: #3da399;
+  --danger: #d1554a;
+  --danger-hover: #b8493f;
 
   --c-streaming: rgba(76, 177, 201, 0.72);
   --c-live: rgba(111, 188, 153, 0.72);
@@ -243,6 +245,17 @@ button.primary:hover{
 button.secondary{
   background: rgba(255,255,255,0.66);
   font-weight: 500;
+}
+
+button.danger{
+  background: var(--danger);
+  color: white;
+  border-color: rgba(0,0,0,0.02);
+  box-shadow: 0 10px 22px rgba(209,85,74,0.22);
+}
+
+button.danger:hover{
+  background: var(--danger-hover);
 }
 
 button.small{
@@ -1431,6 +1444,42 @@ input[type="number"]:focus,
   margin-bottom: 18px;
 }
 
+.legalModalBody{
+  max-height: 60vh;
+  overflow-y: auto;
+  padding-right: 6px;
+  color: var(--text-primary);
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.legalModalBody h3{
+  font-size: 15px;
+  font-weight: 700;
+  margin: 20px 0 8px;
+}
+
+.legalModalBody h3:first-of-type{
+  margin-top: 4px;
+}
+
+.legalModalBody p{
+  margin: 0 0 10px;
+}
+
+.legalModalBody ul{
+  margin: 0 0 10px;
+  padding-left: 20px;
+}
+
+.legalModalBody li{
+  margin-bottom: 6px;
+}
+
+.legalModalBody a{
+  color: var(--primary);
+}
+
 .authForm{
   display:grid;
   gap: 12px;
@@ -2080,6 +2129,44 @@ button:active,
   font-size: 14px;
   background: rgba(255,255,255,0.66);
   font-weight: 500;
+}
+
+.sidebarDeleteAccountBtn{
+  width: 100%;
+  margin-top: 6px;
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 500;
+  padding: 4px 6px;
+}
+
+.sidebarDeleteAccountBtn:hover{
+  background: transparent;
+  box-shadow: none;
+  color: var(--danger);
+  transform: none;
+}
+
+.sidebarLegalBtn{
+  width: 100%;
+  margin-top: 6px;
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 500;
+  padding: 4px 6px;
+}
+
+.sidebarLegalBtn:hover{
+  background: transparent;
+  box-shadow: none;
+  color: var(--primary);
+  transform: none;
 }
 
 /* ---- Mobile sidebar overlay ---- */

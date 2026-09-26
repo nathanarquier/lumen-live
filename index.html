@@ -41,6 +41,14 @@
               </svg>
               Account
             </button>
+            <!-- Shown only when logged in (toggled in updateAccountBtn) -->
+            <button class="sidebarDeleteAccountBtn" id="deleteAccountBtn" type="button" style="display:none;">
+              Delete account
+            </button>
+            <!-- Always visible, logged in or out -->
+            <button class="sidebarLegalBtn" id="legalBtn" type="button">
+              Terms &amp; Privacy
+            </button>
           </div>
 
         </div>
@@ -201,6 +209,115 @@
         </div>
         <p id="authStatusMsg" class="hint"></p>
         <p id="authSwitchMsg" class="hint" style="margin-top:4px;"></p>
+      </div>
+    </div>
+
+    <!-- DELETE ACCOUNT CONFIRM MODAL -->
+    <div id="deleteAccountModal" class="authModal" style="display:none;">
+      <div class="authOverlay" id="deleteAccountOverlay"></div>
+      <div class="authBox">
+        <div class="authHeader">
+          <div>
+            <div class="eyebrow">Lumen account</div>
+            <h2>Delete account</h2>
+          </div>
+          <button id="closeDeleteAccountBtn" class="secondary small" type="button">Close</button>
+        </div>
+        <p class="stepLead">
+          Your account will be permanently deleted in 30 days. You can restore it
+          by logging back in before then. This cannot be undone after 30 days.
+        </p>
+        <div class="buttons" style="margin-top:16px; display:flex; gap:10px;">
+          <button id="cancelDeleteAccountBtn" class="secondary" type="button">Cancel</button>
+          <button id="confirmDeleteAccountBtn" class="danger" type="button">Delete my account</button>
+        </div>
+        <p id="deleteAccountStatusMsg" class="hint"></p>
+      </div>
+    </div>
+
+    <!-- GOODBYE SCREEN — shown after deletion is scheduled, in place of the normal logged-out state -->
+    <div id="goodbyeModal" class="authModal" style="display:none;">
+      <div class="authOverlay"></div>
+      <div class="authBox">
+        <div class="authHeader">
+          <div>
+            <div class="eyebrow">Lumen account</div>
+            <h2>Account scheduled for deletion</h2>
+          </div>
+        </div>
+        <p id="goodbyeMsg" class="stepLead"></p>
+        <div class="buttons" style="margin-top:16px;">
+          <button id="goodbyeCloseBtn" class="primary" type="button">Got it</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- RESTORE ACCOUNT MODAL — shown at login instead of normal app load when a deletion is pending -->
+    <div id="restoreAccountModal" class="authModal" style="display:none;">
+      <div class="authOverlay"></div>
+      <div class="authBox">
+        <div class="authHeader">
+          <div>
+            <div class="eyebrow">Lumen account</div>
+            <h2>Restore your account?</h2>
+          </div>
+        </div>
+        <p id="restoreAccountMsg" class="stepLead"></p>
+        <div class="buttons" style="margin-top:16px; display:flex; gap:10px;">
+          <button id="declineRestoreBtn" class="secondary" type="button">Not now, sign me out</button>
+          <button id="confirmRestoreBtn" class="primary" type="button">Restore my account</button>
+        </div>
+        <p id="restoreAccountStatusMsg" class="hint"></p>
+      </div>
+    </div>
+
+    <!-- TERMS & PRIVACY MODAL -->
+    <div id="legalModal" class="authModal" style="display:none;">
+      <div class="authOverlay" id="legalOverlay"></div>
+      <div class="authBox">
+        <div class="authHeader">
+          <div>
+            <div class="eyebrow">Lumen</div>
+            <h2>Terms of Use &amp; Privacy Policy</h2>
+          </div>
+          <button id="closeLegalBtn" class="secondary small" type="button">Close</button>
+        </div>
+        <div class="legalModalBody">
+          <p class="hint">Last updated: 26 September 2026</p>
+          <p>Lumen is an early-stage, pre-launch product built by Nathan Arquier. It's still being tested with a small number of users. This page explains what the service is, what happens to your data, and how to stop using it if you want to.</p>
+
+          <h3>1. What Lumen is</h3>
+          <p>Lumen is a chat-based coaching tool for early-career musicians. You're not paying for it, there's no guarantee it stays online, and features may change or break while it's in this stage. It's intended for users aged 18 and over.</p>
+
+          <h3>2. What data we collect and why</h3>
+          <ul>
+            <li>Your email address and login, to identify your account (handled by Supabase, our authentication and database provider).</li>
+            <li>The messages you send in chat, and Lumen's replies. Your messages are sent to Anthropic's Claude API to generate a response; that's the only way the coaching function works.</li>
+            <li>Information Lumen infers from your conversation (your stated goal, obstacle, career stage) and the missions you're offered or complete, so the app can pick up where you left off.</li>
+            <li>Basic usage events (e.g. that a mission was offered or completed) so we can tell whether the product is actually helping anyone. Not sold or shared, used only to improve Lumen.</li>
+          </ul>
+          <p>We don't use any third-party analytics, advertising, or tracking tools. Your session sign-in is stored locally in your own browser, not shared with anyone else.</p>
+
+          <h3>3. Who we share it with</h3>
+          <p>Only the two processors above: Supabase (storage and authentication) and Anthropic (to generate chat responses). We don't sell data, and we don't share it with advertisers or other third parties.</p>
+
+          <h3>4. Deleting your account</h3>
+          <p>You can delete your account at any time from the sidebar. Once you do:</p>
+          <ul>
+            <li>Your account is scheduled for permanent deletion in 30 days.</li>
+            <li>If you log back in before then, you'll be offered the choice to restore it.</li>
+            <li>After 30 days, your account and all associated data (conversations, profile, missions, usage events) are permanently and automatically deleted. This can't be undone.</li>
+          </ul>
+
+          <h3>5. Your rights</h3>
+          <p>You can ask what data we hold on you, ask us to correct it, or ask us to delete it sooner than the 30-day window, by emailing <a href="mailto:lumenmusic.app@gmail.com">lumenmusic.app@gmail.com</a>.</p>
+
+          <h3>6. Changes</h3>
+          <p>Because Lumen is still being built, this page may change as the product does. If it changes in a way that matters, we'll flag it in-app.</p>
+
+          <h3>7. Contact</h3>
+          <p><a href="mailto:lumenmusic.app@gmail.com">lumenmusic.app@gmail.com</a></p>
+        </div>
       </div>
     </div>
 
@@ -429,6 +546,11 @@
 
     async function handleSuccessfulLogin() {
       currentUser = await getCurrentUser();
+      // Check for a pending scheduled deletion BEFORE loading any normal app state.
+      if (currentUser) {
+        const deletionStatus = await checkPendingDeletion(currentUser);
+        if (deletionStatus === 'declined') return; // performLogout() already ran inside the modal
+      }
       await loadUserProfile();
       // Logging into an existing account — the server profile is authoritative.
       // Drop anon-only carry-over so it can't leak into an established profile.
@@ -469,54 +591,217 @@
       if (e.key === 'Enter') submitAuth();
     });
 
+    // Shared by the normal "Log out" button and the delete-account confirm flow
+    // (deletion is scheduled server-side first; this just resets client state the
+    // same way a normal logout does).
+    async function performLogout() {
+      await supabaseClient.auth.signOut();
+      currentUser = null;
+      userProfile = null;
+
+      // Reset anon session state — counters and gates start fresh after logout
+      anonProfile            = {};
+      totalAnonMessageCount  = 0;
+      goallessGateShown      = false;
+      goallessGateDismissed  = false;
+      goalNarrowingContext   = null;
+      lastNarrowingNudgeTurn = -Infinity;
+
+      // Cancel any pending conversation delete
+      clearTimeout(pendingDelete?.timeoutId);
+      pendingDelete = null;
+
+      // Clear sidebar back to empty placeholder
+      document.querySelector('.sidebarConvList').innerHTML =
+        '<div class="sidebarConvEmpty">Your conversations will appear here</div>';
+      document.getElementById('sidebarUndoBanner')?.remove();
+
+      // Reset chat panel to welcome screen (resets messages, chatMessagesEl, renders welcome)
+      startNewConversation();
+      conversationId = null;
+      closeSidebar();
+
+      // Re-lock dashboard
+      dashViewBtn.classList.add('locked');
+      dashViewBtn.setAttribute('aria-disabled', 'true');
+      dashViewBtn.title = 'Sign in to access your dashboard';
+      dashViewBtn.innerHTML = `<svg width="11" height="13" viewBox="0 0 11 13" fill="none" aria-hidden="true"><rect x="1" y="5.5" width="9" height="6.5" rx="1.6" stroke="currentColor" stroke-width="1.6"/><path d="M3.5 5.5V4a2 2 0 0 1 4 0v1.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg> Dashboard`;
+      dashViewBtn.onclick = null;
+
+      updateAccountBtn();
+    }
+
     function updateAccountBtn() {
       if (!accountBtn) return;
       const iconSvg = `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
         <circle cx="8" cy="5.5" r="2.5" stroke="currentColor" stroke-width="1.7"/>
         <path d="M2.5 13.5c0-2.485 2.462-4.5 5.5-4.5s5.5 2.015 5.5 4.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
       </svg>`;
+      const deleteAccountBtnEl = document.getElementById('deleteAccountBtn');
       if (currentUser) {
         accountBtn.innerHTML = iconSvg + ' Log out';
-        accountBtn.onclick = async () => {
-          await supabaseClient.auth.signOut();
-          currentUser = null;
-          userProfile = null;
-
-          // Reset anon session state — counters and gates start fresh after logout
-          anonProfile            = {};
-          totalAnonMessageCount  = 0;
-          goallessGateShown      = false;
-          goallessGateDismissed  = false;
-          goalNarrowingContext   = null;
-          lastNarrowingNudgeTurn = -Infinity;
-
-          // Cancel any pending conversation delete
-          clearTimeout(pendingDelete?.timeoutId);
-          pendingDelete = null;
-
-          // Clear sidebar back to empty placeholder
-          document.querySelector('.sidebarConvList').innerHTML =
-            '<div class="sidebarConvEmpty">Your conversations will appear here</div>';
-          document.getElementById('sidebarUndoBanner')?.remove();
-
-          // Reset chat panel to welcome screen (resets messages, chatMessagesEl, renders welcome)
-          startNewConversation();
-          conversationId = null;
-          closeSidebar();
-
-          // Re-lock dashboard
-          dashViewBtn.classList.add('locked');
-          dashViewBtn.setAttribute('aria-disabled', 'true');
-          dashViewBtn.title = 'Sign in to access your dashboard';
-          dashViewBtn.innerHTML = `<svg width="11" height="13" viewBox="0 0 11 13" fill="none" aria-hidden="true"><rect x="1" y="5.5" width="9" height="6.5" rx="1.6" stroke="currentColor" stroke-width="1.6"/><path d="M3.5 5.5V4a2 2 0 0 1 4 0v1.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg> Dashboard`;
-          dashViewBtn.onclick = null;
-
-          updateAccountBtn();
-        };
+        accountBtn.onclick = performLogout;
+        if (deleteAccountBtnEl) {
+          deleteAccountBtnEl.style.display = '';
+          deleteAccountBtnEl.onclick = openDeleteAccountModal;
+        }
       } else {
         accountBtn.innerHTML = iconSvg + ' Account';
         accountBtn.onclick = () => openAuthModal('signup');
+        if (deleteAccountBtnEl) deleteAccountBtnEl.style.display = 'none';
       }
+    }
+
+    // ================================================================
+    //  ACCOUNT DELETION (30-day scheduled deletion + restoration)
+    // ================================================================
+    function openDeleteAccountModal() {
+      document.getElementById('deleteAccountStatusMsg').textContent = '';
+      document.getElementById('confirmDeleteAccountBtn').disabled = false;
+      document.getElementById('deleteAccountModal').style.display = 'flex';
+    }
+
+    function closeDeleteAccountModal() {
+      document.getElementById('deleteAccountModal').style.display = 'none';
+    }
+
+    document.getElementById('closeDeleteAccountBtn').addEventListener('click', closeDeleteAccountModal);
+    document.getElementById('cancelDeleteAccountBtn').addEventListener('click', closeDeleteAccountModal);
+    document.getElementById('deleteAccountOverlay').addEventListener('click', closeDeleteAccountModal);
+    document.getElementById('confirmDeleteAccountBtn').addEventListener('click', confirmDeleteAccount);
+    document.getElementById('goodbyeCloseBtn').addEventListener('click', () => {
+      document.getElementById('goodbyeModal').style.display = 'none';
+    });
+
+    // Terms & Privacy modal — always available, logged in or out, no signup gate
+    document.getElementById('legalBtn').addEventListener('click', () => {
+      document.getElementById('legalModal').style.display = 'flex';
+    });
+    document.getElementById('closeLegalBtn').addEventListener('click', () => {
+      document.getElementById('legalModal').style.display = 'none';
+    });
+    document.getElementById('legalOverlay').addEventListener('click', () => {
+      document.getElementById('legalModal').style.display = 'none';
+    });
+
+    async function confirmDeleteAccount() {
+      const status      = document.getElementById('deleteAccountStatusMsg');
+      const confirmBtn   = document.getElementById('confirmDeleteAccountBtn');
+      if (!currentUser) { closeDeleteAccountModal(); return; }
+
+      confirmBtn.disabled = true;
+      status.textContent  = 'Scheduling deletion…';
+      try {
+        const { error } = await supabaseClient
+          .from('account_deletions')
+          .insert([{ user_id: currentUser.id, requested_at: new Date().toISOString() }]);
+        if (error) {
+          status.textContent = 'Something went wrong — please try again.';
+          confirmBtn.disabled = false;
+          console.error('account_deletions insert error:', error.message);
+          return;
+        }
+      } catch (err) {
+        status.textContent = 'Something went wrong — please try again.';
+        confirmBtn.disabled = false;
+        console.error('account_deletions insert error:', err.message);
+        return;
+      }
+
+      closeDeleteAccountModal();
+      await performLogout();
+
+      document.getElementById('goodbyeMsg').textContent =
+        'Your account will be permanently deleted in 30 days. Log back in before ' +
+        'then if you’d like to restore it.';
+      document.getElementById('goodbyeModal').style.display = 'flex';
+    }
+
+    // Checks whether the given user has a pending scheduled deletion. If so, blocks
+    // with a restore/decline modal and returns once resolved; otherwise returns
+    // immediately. Must be called BEFORE any normal app state is loaded.
+    // Returns: 'restored' | 'declined' | 'none'
+    async function checkPendingDeletion(user) {
+      try {
+        const { data, error } = await supabaseClient
+          .from('account_deletions')
+          .select('requested_at')
+          .eq('user_id', user.id)
+          .maybeSingle();
+        if (error) {
+          console.warn('account_deletions check error:', error.message);
+          return 'none'; // fail open — don't block login on a transient read error
+        }
+        if (!data) return 'none';
+        return await showRestoreModal(data.requested_at);
+      } catch (err) {
+        console.warn('account_deletions check error:', err.message);
+        return 'none';
+      }
+    }
+
+    function showRestoreModal(requestedAtIso) {
+      return new Promise((resolve) => {
+        const deletionDate = new Date(requestedAtIso);
+        deletionDate.setDate(deletionDate.getDate() + 30);
+        const formatted = deletionDate.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+
+        const modal       = document.getElementById('restoreAccountModal');
+        const msg         = document.getElementById('restoreAccountMsg');
+        const status      = document.getElementById('restoreAccountStatusMsg');
+        const confirmBtn  = document.getElementById('confirmRestoreBtn');
+        const declineBtn  = document.getElementById('declineRestoreBtn');
+
+        msg.textContent    = `Your account is scheduled for deletion on ${formatted}. Restore it?`;
+        status.textContent = '';
+        confirmBtn.disabled = false;
+        declineBtn.disabled = false;
+        modal.style.display = 'flex';
+
+        function cleanup() {
+          modal.style.display = 'none';
+          confirmBtn.removeEventListener('click', onConfirm);
+          declineBtn.removeEventListener('click', onDecline);
+        }
+
+        async function onConfirm() {
+          confirmBtn.disabled = true;
+          declineBtn.disabled = true;
+          status.textContent  = 'Restoring…';
+          try {
+            const { error } = await supabaseClient
+              .from('account_deletions')
+              .delete()
+              .eq('user_id', currentUser.id);
+            if (error) {
+              status.textContent  = 'Something went wrong — please try again.';
+              confirmBtn.disabled = false;
+              declineBtn.disabled = false;
+              console.error('account_deletions delete error:', error.message);
+              return;
+            }
+          } catch (err) {
+            status.textContent  = 'Something went wrong — please try again.';
+            confirmBtn.disabled = false;
+            declineBtn.disabled = false;
+            console.error('account_deletions delete error:', err.message);
+            return;
+          }
+          cleanup();
+          resolve('restored');
+        }
+
+        async function onDecline() {
+          confirmBtn.disabled = true;
+          declineBtn.disabled = true;
+          await performLogout(); // deletion stays scheduled — account_deletions row is untouched
+          cleanup();
+          resolve('declined');
+        }
+
+        confirmBtn.addEventListener('click', onConfirm);
+        declineBtn.addEventListener('click', onDecline);
+      });
     }
 
     // ================================================================
@@ -2036,11 +2321,17 @@
       console.log('[DIAG] initChat: currentUser =', currentUser?.id || null);
 
       if (currentUser) {
-        await Promise.all([loadUserProfile(), loadLatestConversation()]);
-        console.log('[DIAG] initChat: after load — messages.length =', messages.length, '| conversationId =', conversationId);
-        // Load sidebar after loadLatestConversation sets conversationId (so active item highlights correctly)
-        await loadSidebarConversations();
-        unlockDashboard();
+        // Check for a pending scheduled deletion BEFORE loading any normal app state.
+        const deletionStatus = await checkPendingDeletion(currentUser);
+        if (deletionStatus === 'declined') {
+          // performLogout() already ran inside the modal — currentUser is null again
+        } else {
+          await Promise.all([loadUserProfile(), loadLatestConversation()]);
+          console.log('[DIAG] initChat: after load — messages.length =', messages.length, '| conversationId =', conversationId);
+          // Load sidebar after loadLatestConversation sets conversationId (so active item highlights correctly)
+          await loadSidebarConversations();
+          unlockDashboard();
+        }
       }
 
       updateAccountBtn(); // always run — attaches onclick for both logged-in and logged-out states
