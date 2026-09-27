@@ -1642,8 +1642,10 @@ button:active{
 }
 html, body {
   height: 100%;
+  width: 100%;
   overflow: hidden;
   overscroll-behavior: none;
+  touch-action: pan-y;
 }
 
 .planChecklist li{
@@ -2337,6 +2339,8 @@ button:active,
 .chatContent{
   flex: 1;
   overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior-y: contain;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2681,6 +2685,14 @@ button:active,
     padding: 12px 14px 16px;
   }
 
+  .chatInputField{
+    font-size: 16px;
+  }
+
+  .authForm input{
+    font-size: 16px;
+  }
+
   .chatTopBar{
     padding: 12px 14px;
   }
@@ -2953,6 +2965,8 @@ textarea.chatInputField {
   align-items: stretch;
   justify-content: flex-start;
   overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior-y: contain;
 }
 
 .dashboardContent {
