@@ -67,6 +67,17 @@ Primary accent color: teal (#4db8ae). Font: Satoshi only (no secondary display
 font in use). Rounded corners throughout (18–24px radii), soft drop shadows, 
 backdrop-blur on sidebar/topbar/cards.
 
+## Model choice for dev tasks
+Default to Sonnet for day-to-day work — everything built so far (redesign, 
+bug fixes, the retention diagnosis) ran on Sonnet with no capability ceiling 
+hit. Reach for Opus specifically for large, hard-to-reverse, many-files-at-once 
+passes: breaking `index.html`'s single inline script into real modules, a 
+first automated test suite, a schema migration on live user data, or the 
+goal-state machine growing enough branches that interacting states become 
+genuinely hard to reason about by hand. Pick the model per task, not 
+permanently. Full reasoning logged in Obsidian: `300 - Lumen/304 - Technical 
+Decisions.md`, 2026-09-28 entry.
+
 ## Rules for Claude Code
 - Never modify Supabase connection credentials
 - Always preserve existing Supabase event tracking calls (`logUserEvent`)
